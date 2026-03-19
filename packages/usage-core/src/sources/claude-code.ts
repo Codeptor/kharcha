@@ -66,7 +66,7 @@ export async function readClaudeCodeUsage(targetPath: string): Promise<UsageSlic
       if (!line.trim()) continue
       const parsed = parseClaudeLine(line)
       const model = parsed?.message?.model
-      if (!parsed || !model) continue
+      if (!parsed || !model || model === "<synthetic>") continue
 
       const normalized = normalizeModelKey("anthropic", model)
       const usage = parsed.message?.usage

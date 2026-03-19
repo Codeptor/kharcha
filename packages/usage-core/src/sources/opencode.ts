@@ -68,6 +68,15 @@ function parseRecord(input: string | Record<string, unknown>): OpenCodeRecord | 
   return input as OpenCodeRecord
 }
 
+function readColumnValue(row: Record<string, unknown>, key: string): string | number | null | undefined {
+  const value = row[key]
+  if (typeof value === "string" || typeof value === "number" || value === null) {
+    return value as string | number | null
+  }
+
+  return undefined
+}
+
 async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
   const content = await readFile(targetPath, "utf8")
   const parsed = JSON.parse(content) as OpenCodeRecord
@@ -103,10 +112,13 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
 
   try {
     for (const row of db.query("select id, session_id, time_created, data from message").all() as Array<
-      [string | null, string | null, number | null, string | null]
+      Record<string, unknown>
     >) {
-      const [id, sessionId, timeCreated, data] = row
-      const record = parseRecord(data ?? "")
+      const id = readColumnValue(row, "id")
+      const sessionId = readColumnValue(row, "session_id")
+      const timeCreated = readColumnValue(row, "time_created")
+      const data = readColumnValue(row, "data")
+      const record = parseRecord(typeof data === "string" ? data : "")
       if (!record || record.role !== "assistant") continue
 
       const provider = record.providerID ?? "opencode"
@@ -119,13 +131,15 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
         provider: normalized.provider,
         model: normalized.model,
         day: toDay(timeCreated ?? record.time?.created ?? undefined),
-        startedAt: timeCreated ? new Date(timeCreated).toISOString() : null,
+        startedAt: typeof timeCreated === "number" ? new Date(timeCreated).toISOString() : null,
         inputTokens: tokens.input ?? null,
         outputTokens: tokens.output ?? null,
         cacheReadTokens: null,
         cacheWriteTokens: null,
         exactCostUsd: typeof record.cost === "number" ? record.cost : null,
-        sourceSessionHash: hashSessionId(sessionId ?? id ?? targetPath),
+        sourceSessionHash: hashSessionId(
+          typeof sessionId === "string" ? sessionId : typeof id === "string" ? id : targetPath,
+        ),
       })
     }
   } finally {

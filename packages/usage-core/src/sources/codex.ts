@@ -37,9 +37,13 @@ async function collectCodexTargets(targetPath: string): Promise<string[]> {
   return children.flat()
 }
 
+function toTimestampMs(value: number): number {
+  return value < 1_000_000_000_000 ? value * 1000 : value
+}
+
 function toDay(value?: string | number): string {
   if (value === undefined || value === null) return new Date().toISOString().slice(0, 10)
-  const date = typeof value === "number" ? new Date(value) : new Date(value)
+  const date = typeof value === "number" ? new Date(toTimestampMs(value)) : new Date(value)
   return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10)
 }
 
@@ -90,25 +94,33 @@ function readCodexSqlite(filePath: string): UsageSlice[] {
   const db = new Database(filePath, { readonly: true })
 
   try {
-    for (const row of db.query("select id, model_provider, model, created_at, tokens_used from threads").all() as Array<
-      [string | null, string | null, string | null, number | null, number | null]
-    >) {
-      const [id, provider, model, createdAt, tokensUsed] = row
-      if (!provider || !model) continue
-      const normalized = normalizeModelKey(provider, model)
-      rows.push({
-        source: "codex",
-        provider: normalized.provider,
-        model: normalized.model,
-        day: toDay(createdAt ?? undefined),
-        startedAt: createdAt ? new Date(createdAt).toISOString() : null,
-        inputTokens: tokensUsed ?? null,
-        outputTokens: null,
-        cacheReadTokens: null,
-        cacheWriteTokens: null,
-        exactCostUsd: null,
-        sourceSessionHash: hashSessionId(id ?? `${filePath}:${provider}:${model}`),
-      })
+    try {
+      for (const row of db.query("select id, model_provider, model, created_at, tokens_used from threads").all() as Array<
+        Record<string, string | number | null>
+      >) {
+        const id = row.id
+        const provider = row.model_provider
+        const model = row.model
+        const createdAt = row.created_at
+        const tokensUsed = row.tokens_used
+        if (typeof provider !== "string" || typeof model !== "string") continue
+        const normalized = normalizeModelKey(provider, model)
+        rows.push({
+          source: "codex",
+          provider: normalized.provider,
+          model: normalized.model,
+          day: toDay(createdAt ?? undefined),
+          startedAt: typeof createdAt === "number" ? new Date(toTimestampMs(createdAt)).toISOString() : null,
+          inputTokens: typeof tokensUsed === "number" ? tokensUsed : null,
+          outputTokens: null,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
+          exactCostUsd: null,
+          sourceSessionHash: hashSessionId(typeof id === "string" ? id : `${filePath}:${provider}:${model}`),
+        })
+      }
+    } catch {
+      return rows
     }
   } finally {
     db.close()
