@@ -1,19 +1,26 @@
-import { Button } from "@workspace/ui/components/button"
+import { CostChart } from "@/components/cost-chart"
+import { DashboardHeader } from "@/components/dashboard-header"
+import { getDashboardData } from "@/lib/dashboard/get-dashboard-data"
+import { env } from "@/lib/env"
 
-export default function Page() {
+export const dynamic = "force-dynamic"
+
+export default async function Page() {
+  const data = await getDashboardData()
+
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
-        </div>
-        <div className="text-muted-foreground font-mono text-xs">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
+    <main
+      className="relative min-h-svh overflow-hidden bg-background text-foreground"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle at top left, rgba(244, 114, 182, 0.14), transparent 34%), radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 28%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 20%)",
+      }}
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.12),transparent_60%)] blur-3xl dark:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.06),transparent_60%)]" />
+      <div className="relative mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <DashboardHeader title={env.PUBLIC_SITE_TITLE} lifetimeTotalUsd={data.lifetimeTotalUsd} />
+        <CostChart days={data.days} />
       </div>
-    </div>
+    </main>
   )
 }
