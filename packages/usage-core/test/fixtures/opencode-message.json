@@ -1,0 +1,6 @@
+{
+  "id": "msg_1",
+  "session_id": "ses_1",
+  "time_created": 1771551784680,
+  "data": "{\"role\":\"assistant\",\"providerID\":\"anthropic\",\"modelID\":\"claude-opus-4-6\",\"cost\":0.42,\"tokens\":{\"input\":1000,\"output\":300,\"total\":1300}}"
+}
