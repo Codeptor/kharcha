@@ -38,10 +38,17 @@ async function collectJsonlFiles(targetPath: string): Promise<string[]> {
   return files.flat()
 }
 
+function localDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
 function toDay(value?: string): string {
-  if (!value) return new Date().toISOString().slice(0, 10)
+  if (!value) return localDate(new Date())
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10)
+  return Number.isNaN(date.getTime()) ? localDate(new Date()) : localDate(date)
 }
 
 function hashSessionId(sessionId: string): string {

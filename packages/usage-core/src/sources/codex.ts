@@ -14,6 +14,15 @@ type CodexSessionLine = {
   }
 }
 
+const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
+  openai: "gpt-5.4",
+  anthropic: "claude-sonnet-4-6",
+}
+
+function inferDefaultModel(provider: string): string | null {
+  return PROVIDER_DEFAULT_MODELS[provider] ?? null
+}
+
 async function collectCodexTargets(targetPath: string): Promise<string[]> {
   const targetStat = await stat(targetPath)
 
@@ -41,10 +50,14 @@ function toTimestampMs(value: number): number {
   return value < 1_000_000_000_000 ? value * 1000 : value
 }
 
+function localDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
 function toDay(value?: string | number): string {
-  if (value === undefined || value === null) return new Date().toISOString().slice(0, 10)
+  if (value === undefined || value === null) return localDate(new Date())
   const date = typeof value === "number" ? new Date(toTimestampMs(value)) : new Date(value)
-  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10)
+  return Number.isNaN(date.getTime()) ? localDate(new Date()) : localDate(date)
 }
 
 function hashSessionId(sessionId: string): string {
@@ -100,10 +113,12 @@ function readCodexSqlite(filePath: string): UsageSlice[] {
       >) {
         const id = row.id
         const provider = row.model_provider
-        const model = row.model
+        const rawModel = row.model
         const createdAt = row.created_at
         const tokensUsed = row.tokens_used
-        if (typeof provider !== "string" || typeof model !== "string") continue
+        if (typeof provider !== "string") continue
+        const model = typeof rawModel === "string" && rawModel.length > 0 ? rawModel : inferDefaultModel(provider)
+        if (!model) continue
         const normalized = normalizeModelKey(provider, model)
         rows.push({
           source: "codex",

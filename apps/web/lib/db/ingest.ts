@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm"
+import { inArray, sql } from "drizzle-orm"
 
 import { db } from "./client"
 import { dailyRollups, pricingSnapshots, usageRows } from "./schema"
@@ -219,7 +219,15 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
             costUsd: toDbNumber(row.costUsd),
           })),
         )
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: usageRows.dedupeKey,
+          set: {
+            costUsd: sql`excluded.cost_usd`,
+            pricingMode: sql`excluded.pricing_mode`,
+            pricingSnapshotKey: sql`excluded.pricing_snapshot_key`,
+            createdAt: sql`now()`,
+          },
+        })
     }
 
     await tx.delete(dailyRollups).where(inArray(dailyRollups.day, affectedDays))

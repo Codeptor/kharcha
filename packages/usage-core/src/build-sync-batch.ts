@@ -83,7 +83,10 @@ export async function buildSyncBatch(rows: UsageSlice[], pricingLookup: SyncPric
       }
     }
 
-    if (!deduped.has(dedupeKey)) {
+    if (deduped.has(dedupeKey)) {
+      const existing = deduped.get(dedupeKey)!
+      existing.costUsd += pricing.costUsd
+    } else {
       deduped.set(dedupeKey, {
         dedupeKey,
         source: row.source,

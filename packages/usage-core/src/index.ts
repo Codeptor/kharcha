@@ -7,3 +7,4 @@ export type { SyncBatch, SyncBatchRow, SyncPricingLookup, SyncPricingSnapshot } 
 export { readClaudeCodeUsage } from "./sources/claude-code"
 export { readCodexUsage } from "./sources/codex"
 export { readOpenCodeUsage } from "./sources/opencode"
+export { readKimiUsage } from "./sources/kimi"

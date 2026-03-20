@@ -1,0 +1,1 @@
+[  153321ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=EvRFNUq6awm2dz-czQ-Md' failed: Error in connection establishment: net::ERR_CONNECTION_TIMED_OUT @ http://localhost:3000/_next/static/chunks/93f86_next_dist_client_61372306._.js:10878

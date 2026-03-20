@@ -1,17 +1,6 @@
 "use client"
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts"
 
-import { ChartContainer, ChartTooltip, type ChartConfig } from "@workspace/ui/components/chart"
-import { cn } from "@workspace/ui/lib/utils"
-
-import { DayBreakdownTooltip } from "./day-breakdown-tooltip"
+import { useState, useMemo } from "react"
 
 type ChartSegment = {
   key: string
@@ -25,161 +14,144 @@ type ChartDay = {
   segments: ChartSegment[]
 }
 
-const palette = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-]
+const MAX_HEIGHT = 300
 
-function formatDayTick(value: string) {
-  const date = new Date(`${value}T00:00:00Z`)
-
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date)
+function formatDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  if (isNaN(d.getTime())) return iso
+  const month = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" })
+  const day = d.getUTCDate()
+  const suffix =
+    day === 1 || day === 21 || day === 31
+      ? "st"
+      : day === 2 || day === 22
+        ? "nd"
+        : day === 3 || day === 23
+          ? "rd"
+          : "th"
+  return `${month} ${day}${suffix}`
 }
 
-function formatAxisCurrency(value: number) {
-  if (value === 0) {
-    return "$0"
-  }
-
-  if (value >= 1000) {
-    return `$${Math.round(value / 1000)}k`
-  }
-
-  return `$${Math.round(value)}`
+function displayName(label: string): string {
+  const slash = label.lastIndexOf(" / ")
+  const raw = slash >= 0 ? label.slice(slash + 3) : label
+  return raw
+    .replace(/^claude-/, "")
+    .replace(/^gpt-/, "GPT ")
+    .split("-")
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(" ")
+    .replace(/(\d) (\d)/g, "$1.$2")
 }
 
-function buildSeries(days: ChartDay[]) {
-  const keys = [...new Set(days.flatMap((day) => day.segments.map((segment) => segment.key)))]
-  const totals = new Map<string, number>()
-
-  for (const day of days) {
-    for (const segment of day.segments) {
-      totals.set(segment.key, (totals.get(segment.key) ?? 0) + segment.costUsd)
-    }
+function fillGaps(days: ChartDay[]): ChartDay[] {
+  if (days.length <= 1) return days
+  const map = new Map(days.map((d) => [d.day, d]))
+  const start = new Date(`${days[0]!.day}T00:00:00Z`)
+  const end = new Date(`${days[days.length - 1]!.day}T00:00:00Z`)
+  const result: ChartDay[] = []
+  const cur = new Date(start)
+  while (cur <= end) {
+    const iso = cur.toISOString().slice(0, 10)
+    result.push(map.get(iso) ?? { day: iso, total: 0, segments: [] })
+    cur.setUTCDate(cur.getUTCDate() + 1)
   }
-
-  keys.sort((left, right) => {
-    const leftTotal = totals.get(left) ?? 0
-    const rightTotal = totals.get(right) ?? 0
-
-    if (rightTotal !== leftTotal) {
-      return rightTotal - leftTotal
-    }
-
-    return left.localeCompare(right)
-  })
-
-  const config = Object.fromEntries(
-    keys.map((key, index) => {
-      const preview = days.flatMap((day) => day.segments).find((segment) => segment.key === key)
-      const color = palette[index % palette.length]
-
-      return [
-        key,
-        {
-          label: preview?.label ?? key,
-          color,
-        },
-      ]
-    }),
-  ) as ChartConfig
-
-  const data = days.map((day) => {
-    const row: Record<string, string | number> = {
-      day: day.day,
-      total: day.total,
-    }
-
-    for (const segment of day.segments) {
-      row[segment.key] = segment.costUsd
-    }
-
-    return row
-  })
-
-  return { config, data, keys }
+  return result
 }
 
-export function CostChart({ days }: { days: ChartDay[] }) {
+export function CostChart({ days: rawDays }: { days: ChartDay[] }) {
+  const days = useMemo(() => fillGaps(rawDays), [rawDays])
+  const [hovered, setHovered] = useState<number | null>(null)
+  const maxCost = useMemo(
+    () => Math.max(...days.map((d) => d.total), 0.01),
+    [days],
+  )
+  const activeIndex = hovered ?? days.length - 1
+
   if (days.length === 0) {
     return (
-      <section className="rounded-[2rem] border border-border/60 bg-card/80 p-6 shadow-[0_24px_100px_-36px_rgba(0,0,0,0.24)] backdrop-blur">
-        <div className="flex min-h-[18rem] items-center justify-center rounded-[1.5rem] border border-dashed border-border/70 bg-background/60 px-6 text-center">
-          <div className="space-y-2">
-            <p className="text-sm font-medium">No usage synced yet</p>
-            <p className="text-sm text-muted-foreground">
-              Run the local sync command to populate the historical chart.
-            </p>
-          </div>
-        </div>
-      </section>
+      <p className="font-mono text-xs text-stone-500 dark:text-stone-400">
+        No usage data synced yet.
+      </p>
     )
   }
 
-  const { config, data, keys } = buildSeries(days)
-
   return (
-    <section className="overflow-hidden rounded-[2rem] border border-border/60 bg-card/80 shadow-[0_24px_100px_-36px_rgba(0,0,0,0.24)] backdrop-blur">
-      <div className="border-b border-border/60 px-5 py-4 sm:px-6">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-muted-foreground">Daily spend</p>
-            <p className="text-sm text-muted-foreground">Hover any bar to inspect provider and model costs.</p>
-          </div>
-          <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground">
-            {days.length} days
-          </p>
-        </div>
-      </div>
+    <div
+      className="relative flex items-end"
+      style={{ gap: 10 }}
+      onMouseLeave={() => setHovered(null)}
+    >
+      {days.map((day, i) => {
+        const dimmed = hovered !== null && hovered !== i
+        const active = i === activeIndex
+        const sorted = [...day.segments].sort(
+          (a, b) => b.costUsd - a.costUsd,
+        )
 
-      <div className={cn("h-[360px] w-full px-2 py-4 sm:px-4")}>
-        <ChartContainer config={config} className="h-full w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-              <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.5} />
-              <XAxis
-                dataKey="day"
-                tickFormatter={formatDayTick}
-                tickLine={false}
-                axisLine={false}
-                minTickGap={24}
-                tickMargin={12}
-                style={{ fontSize: 12 }}
+        return (
+          <div
+            key={day.day}
+            className="relative flex flex-col gap-0.5 select-none"
+            style={{ width: 1 }}
+            onMouseEnter={() => setHovered(i)}
+          >
+            {day.total <= 0 ? (
+              <div
+                className={`h-1 w-full rounded-none ${
+                  dimmed
+                    ? "bg-stone-400 dark:bg-stone-500"
+                    : "bg-stone-300 dark:bg-stone-600"
+                }`}
               />
-              <YAxis
-                tickFormatter={formatAxisCurrency}
-                tickLine={false}
-                axisLine={false}
-                width={56}
-                tickMargin={8}
-                style={{ fontSize: 12 }}
-              />
-              <ChartTooltip content={<DayBreakdownTooltip />} />
-              {keys.map((key) => (
-                <Bar
-                  key={key}
-                  dataKey={key}
-                  stackId="spend"
-                  fill={config[key]?.color ?? "var(--chart-1)"}
-                  radius={2}
-                  maxBarSize={24}
-                  isAnimationActive={false}
+            ) : (
+              sorted.map((seg) => (
+                <div
+                  key={seg.key}
+                  className={`w-full rounded-none ${
+                    dimmed
+                      ? "bg-stone-400 dark:bg-stone-500"
+                      : "bg-stone-900 dark:bg-stone-100"
+                  }`}
+                  style={{
+                    height: Math.max(
+                      1,
+                      (seg.costUsd / maxCost) * MAX_HEIGHT,
+                    ),
+                  }}
                 />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartContainer>
-      </div>
-    </section>
+              ))
+            )}
+
+            {active && (
+              <div className="pointer-events-none absolute left-1/2 top-full mt-3 -translate-x-1/2 select-none">
+                <div className="whitespace-nowrap text-center font-mono text-[13px] text-stone-500 dark:text-stone-400">
+                  {formatDate(day.day)}
+                </div>
+                {hovered === i && sorted.filter((s) => s.costUsd >= 0.01).length > 0 && (
+                  <div className="mt-2.5 flex flex-col gap-1.5">
+                    {sorted
+                      .filter((s) => s.costUsd >= 0.01)
+                      .map((seg) => (
+                        <div
+                          key={seg.key}
+                          className="flex items-center gap-2 whitespace-nowrap"
+                        >
+                          <span className="font-mono text-[13px] text-stone-700 dark:text-stone-300">
+                            {displayName(seg.label)}
+                          </span>
+                          <span className="font-mono text-[13px] text-stone-500 dark:text-stone-400">
+                            {`$${seg.costUsd.toFixed(2)}`}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }

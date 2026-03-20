@@ -50,7 +50,7 @@ describe("buildSyncBatch", () => {
       source: "opencode",
       provider: "anthropic",
       model: "claude-sonnet-4-6",
-      costUsd: 8,
+      costUsd: 16,
       pricingMode: "estimated",
     })
     expect(batch.pricingSnapshots).toHaveLength(1)

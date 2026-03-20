@@ -29,5 +29,9 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "@lobehub/icons": "^5.0.1",
+    "lucide-react": "^0.577.0"
+  }
 }

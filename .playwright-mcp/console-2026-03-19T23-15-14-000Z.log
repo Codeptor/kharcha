@@ -1,0 +1,31 @@
+[     409ms] [WARNING] The width(-1) and height(-1) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width. @ http://localhost:3000/_next/static/chunks/93f86_next_dist_0cfda07d._.js:2297
+[     409ms] [WARNING] The width(-1) and height(-1) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width. @ http://localhost:3000/_next/static/chunks/93f86_next_dist_0cfda07d._.js:2297
+[  183791ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=3bo83SS-_mG-U_6fiEP3q' failed: Error in connection establishment: net::ERR_CONNECTION_TIMED_OUT @ http://localhost:3000/_next/static/chunks/93f86_next_dist_client_61372306._.js:10878
+[  196333ms] [WARNING] The width(-1) and height(-1) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width. @ http://localhost:3000/_next/static/chunks/93f86_next_dist_0cfda07d._.js:2297
+[  196333ms] [WARNING] The width(-1) and height(-1) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width. @ http://localhost:3000/_next/static/chunks/93f86_next_dist_0cfda07d._.js:2297
+[  566568ms] [ERROR] ./apps/web/components/dashboard.tsx:405:1
+Parsing ecmascript source code failed
+  403 |     </div>
+  404 |   )
+> 405 | }
+      | ^
+  406 |
+
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+Import trace:
+  Server Component:
+    ./apps/web/components/dashboard.tsx
+    ./apps/web/app/page.tsx @ http://localhost:3000/_next/static/chunks/93f86_next_dist_0cfda07d._.js:3127

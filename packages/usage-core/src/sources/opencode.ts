@@ -17,6 +17,10 @@ type OpenCodeRecord = {
     input?: number
     output?: number
     total?: number
+    cache?: {
+      read?: number
+      write?: number
+    }
   }
   time?: {
     created?: number
@@ -46,10 +50,14 @@ async function collectOpenCodeTargets(targetPath: string): Promise<string[]> {
   return children.flat()
 }
 
+function localDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
 function toDay(value?: string | number): string {
-  if (value === undefined || value === null) return new Date().toISOString().slice(0, 10)
+  if (value === undefined || value === null) return localDate(new Date())
   const date = typeof value === "number" ? new Date(value) : new Date(value)
-  return Number.isNaN(date.getTime()) ? new Date().toISOString().slice(0, 10) : date.toISOString().slice(0, 10)
+  return Number.isNaN(date.getTime()) ? localDate(new Date()) : localDate(date)
 }
 
 function hashSessionId(sessionId: string): string {
@@ -98,9 +106,9 @@ async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
       startedAt: createdAt ? new Date(createdAt).toISOString() : null,
       inputTokens: tokens.input ?? null,
       outputTokens: tokens.output ?? null,
-      cacheReadTokens: null,
-      cacheWriteTokens: null,
-      exactCostUsd: typeof record.cost === "number" ? record.cost : null,
+      cacheReadTokens: tokens.cache?.read ?? null,
+      cacheWriteTokens: tokens.cache?.write ?? null,
+      exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
       sourceSessionHash: hashSessionId(parsed.session_id ?? parsed.id ?? targetPath),
     },
   ]
@@ -136,7 +144,7 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
         outputTokens: tokens.output ?? null,
         cacheReadTokens: null,
         cacheWriteTokens: null,
-        exactCostUsd: typeof record.cost === "number" ? record.cost : null,
+        exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
         sourceSessionHash: hashSessionId(
           typeof sessionId === "string" ? sessionId : typeof id === "string" ? id : targetPath,
         ),
@@ -175,7 +183,7 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
         outputTokens: tokens.output ?? null,
         cacheReadTokens: null,
         cacheWriteTokens: null,
-        exactCostUsd: typeof record.cost === "number" ? record.cost : null,
+        exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
         sourceSessionHash: hashSessionId(parsed.session_id ?? parsed.id ?? targetPath),
       })
     } catch {

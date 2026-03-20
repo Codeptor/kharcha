@@ -47,28 +47,29 @@
     --radius-2xl: calc(var(--radius) * 1.8);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
-    --font-mono: var(--font-mono);
+    --font-mono: "Departure Mono", ui-monospace, SFMono-Regular, monospace;
+    --font-display: "Nippo", system-ui, sans-serif;
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    --background: oklch(0.955 0.012 70);
+    --foreground: oklch(0.25 0.015 45);
+    --card: oklch(0.96 0.01 70);
+    --card-foreground: oklch(0.25 0.015 45);
+    --popover: oklch(0.96 0.01 70);
+    --popover-foreground: oklch(0.25 0.015 45);
+    --primary: oklch(0.32 0.015 45);
+    --primary-foreground: oklch(0.95 0.012 70);
+    --secondary: oklch(0.935 0.015 68);
+    --secondary-foreground: oklch(0.32 0.015 45);
+    --muted: oklch(0.935 0.015 68);
+    --muted-foreground: oklch(0.50 0.015 50);
+    --accent: oklch(0.935 0.015 68);
+    --accent-foreground: oklch(0.32 0.015 45);
     --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --border: oklch(0.895 0.015 68);
+    --input: oklch(0.895 0.015 68);
+    --ring: oklch(0.60 0.015 50);
     --chart-1: oklch(0.823 0.12 346.018);
     --chart-2: oklch(0.656 0.241 354.308);
     --chart-3: oklch(0.592 0.249 0.584);
@@ -117,6 +118,38 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
+}
+
+@font-face {
+  font-family: "Nippo";
+  src: url("/fonts/Nippo-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Departure Mono";
+  src: url("/fonts/DepartureMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@keyframes grow-up {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.animate-grow-up {
+  animation: grow-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: bottom;
 }
 
 @layer base {
