@@ -1,0 +1,7 @@
+node_modules
+.next
+.turbo
+.playwright-mcp
+docs
+*.png
+*.log
