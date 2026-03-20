@@ -394,38 +394,11 @@ export function Dashboard({
           </div>
 
           {/* Center: sync status */}
-          <div className="hidden items-center gap-2 sm:flex">
-            {data.lastSynced && (
-              <span className="font-mono text-[10px] text-stone-400 dark:text-stone-600">
-                synced {timeAgo(data.lastSynced)}
-              </span>
-            )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                handleSync()
-              }}
-              disabled={syncing}
-              className="font-mono text-[10px] text-stone-400 underline underline-offset-2 transition-colors hover:text-stone-600 disabled:no-underline disabled:text-stone-300 dark:text-stone-600 dark:hover:text-stone-400 dark:disabled:text-stone-700"
-            >
-              {syncing ? (
-                <span className="inline-flex items-center gap-0.5">
-                  <span className="inline-block h-1 w-1 animate-bounce rounded-full bg-stone-500 [animation-delay:0ms]" />
-                  <span className="inline-block h-1 w-1 animate-bounce rounded-full bg-stone-500 [animation-delay:150ms]" />
-                  <span className="inline-block h-1 w-1 animate-bounce rounded-full bg-stone-500 [animation-delay:300ms]" />
-                </span>
-              ) : syncMsg === "synced" ? (
-                "done"
-              ) : (
-                "sync"
-              )}
-            </button>
-            {syncMsg && syncMsg !== "synced" && (
-              <span className="font-mono text-[10px] text-red-500">
-                {syncMsg}
-              </span>
-            )}
-          </div>
+          {data.lastSynced && (
+            <span className="hidden font-mono text-[10px] text-stone-400 sm:inline dark:text-stone-600">
+              synced {timeAgo(data.lastSynced)}
+            </span>
+          )}
 
           <div className="flex items-center gap-2 sm:gap-3">
             <button
@@ -601,19 +574,14 @@ export function Dashboard({
           </div>
         </div>
 
-        {/* Mobile sync button */}
-        <div className="mt-2 sm:hidden">
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              handleSync()
-            }}
-            disabled={syncing}
-            className="font-mono text-[10px] text-stone-400 underline underline-offset-2 dark:text-stone-600"
-          >
-            {syncing ? "syncing..." : data.lastSynced ? `synced ${timeAgo(data.lastSynced)} · sync` : "sync"}
-          </button>
-        </div>
+        {/* Mobile sync status */}
+        {data.lastSynced && (
+          <div className="mt-2 sm:hidden">
+            <span className="font-mono text-[10px] text-stone-400 dark:text-stone-600">
+              synced {timeAgo(data.lastSynced)}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Footer: provider breakdown */}
