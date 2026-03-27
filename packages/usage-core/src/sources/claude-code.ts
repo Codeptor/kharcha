@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
-import { readdir, readFile, stat } from "node:fs/promises"
+import { createReadStream } from "node:fs"
+import { readdir, stat } from "node:fs/promises"
+import { createInterface } from "node:readline"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
 
@@ -63,13 +65,22 @@ function parseClaudeLine(line: string): ClaudeSessionLine | null {
   }
 }
 
+async function* streamFileLines(filePath: string): AsyncGenerator<string> {
+  const rl = createInterface({
+    input: createReadStream(filePath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  })
+  for await (const line of rl) {
+    yield line
+  }
+}
+
 export async function readClaudeCodeUsage(targetPath: string): Promise<UsageSlice[]> {
   const files = await collectJsonlFiles(targetPath)
   const rows: UsageSlice[] = []
 
   for (const file of files) {
-    const content = await readFile(file, "utf8")
-    for (const line of content.split("\n")) {
+    for await (const line of streamFileLines(file)) {
       if (!line.trim()) continue
       const parsed = parseClaudeLine(line)
       const model = parsed?.message?.model

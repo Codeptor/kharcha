@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
+import { createReadStream } from "node:fs"
 import { readdir, readFile, stat } from "node:fs/promises"
+import { createInterface } from "node:readline"
 import { Database } from "bun:sqlite"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
@@ -158,10 +160,13 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
 }
 
 async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
-  const content = await readFile(targetPath, "utf8")
   const rows: UsageSlice[] = []
+  const rl = createInterface({
+    input: createReadStream(targetPath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  })
 
-  for (const line of content.split("\n")) {
+  for await (const line of rl) {
     if (!line.trim()) continue
     try {
       const parsed = JSON.parse(line) as OpenCodeRecord
