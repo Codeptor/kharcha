@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Kharcha — a public AI usage dashboard that aggregates Claude Code, Codex, and OpenCode spend into a read-only Next.js site. A local Bun script reads usage data from the machine, normalizes models/pricing, and POSTs batches to a protected sync endpoint. The dashboard is server-rendered, force-dynamic, no auth on the read side.
+Kharcha — a public AI usage dashboard that aggregates Claude Code, Codex, OpenCode, and Kimi spend into a read-only Astro site. A local Bun script reads usage data from the machine, normalizes models/pricing, and POSTs batches to a protected sync endpoint. The dashboard is server-rendered with no auth on the read side.
 
 ## Commands
 
@@ -29,7 +29,7 @@ Single-package test: `cd packages/usage-core && bun test` or `cd apps/web && bun
 ## Monorepo Layout
 
 ```
-apps/web/          Next.js 16 App Router — dashboard UI + POST /api/sync endpoint
+apps/web/          Astro SSR app — dashboard UI + POST /api/sync endpoint
 packages/ui/       Shared shadcn/ui components (Tailwind v4, radix-vega style, HugeIcons)
 packages/usage-core/  Source readers, model aliasing, pricing freeze, sync batch builder
 packages/eslint-config/  Shared ESLint flat configs
@@ -55,7 +55,7 @@ scripts/sync.ts    CLI entry: reads local usage → fetches pricing → POSTs ba
                                               → upsert usage_rows
                                               → rebuild daily_rollups (affected days only)
                                           │
-                                    GET / → getDashboardData() → CostChart (Recharts)
+                                    GET / → getDashboardData() → Dashboard React island
 ```
 
 ## Database (PostgreSQL / Drizzle ORM)
@@ -63,6 +63,7 @@ scripts/sync.ts    CLI entry: reads local usage → fetches pricing → POSTs ba
 Schema: `apps/web/lib/db/schema.ts`. Migrations: `apps/web/drizzle/`. Config: `drizzle.config.ts` (root).
 
 Three tables:
+
 - **usage_rows** — deduplicated ingestion log, PK is `dedupe_key` (SHA256 of source:session:provider:model:day)
 - **pricing_snapshots** — frozen per-model pricing at ingest time, PK is `snapshotKey`
 - **daily_rollups** — materialized aggregates (day × provider × model), rebuilt on each sync for affected days
@@ -73,11 +74,12 @@ Three tables:
 - **Pricing modes**: exact (logged cost) > estimated (token counts × frozen pricing) > unpriced (zero).
 - **Model aliasing**: `normalizeModelKey()` in `usage-core/src/model-aliases.ts` harmonizes provider/model strings across sources (e.g. `github-copilot:claude-opus-4.6` → `anthropic:claude-opus-4-6`).
 - **Privacy**: No prompts, paths, usernames, or machine identifiers leave the local CLI.
-- **Force-dynamic**: Dashboard page always fetches fresh data (no ISR/SSG).
+- **Server-rendered dashboard**: `src/pages/index.astro` fetches fresh data on request (`prerender = false`).
 
 ## Environment Variables
 
 Required in both root `.env` and `apps/web/.env` (see `.env.example` files):
+
 - `DATABASE_URL` — Postgres connection string
 - `SYNC_SECRET` — Bearer token for POST /api/sync
 - `SYNC_URL` — Full URL to sync endpoint (root only, used by `scripts/sync.ts`)
@@ -87,8 +89,8 @@ All four are declared in `turbo.json` globalEnv.
 
 ## Stack
 
-- **Runtime**: Bun (dev/scripts), Node (Next.js prod)
-- **Framework**: Next.js 16 App Router, React 19, Turbopack
+- **Runtime**: Bun (dev/scripts), Vercel Serverless for Astro SSR
+- **Framework**: Astro 6, React 19 islands, Vite
 - **Styling**: Tailwind CSS v4, shadcn/ui (radix-vega), Geist fonts, HugeIcons
 - **ORM**: Drizzle + `postgres` driver
 - **Build**: Turborepo

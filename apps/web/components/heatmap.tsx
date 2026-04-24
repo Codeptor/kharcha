@@ -43,9 +43,9 @@ export function Heatmap({
   onClick: (idx: number) => void
   fmt: (n: number) => string
 }) {
-  const { grid, weekCount, maxCost } = useMemo(() => {
+  const { grid, maxCost } = useMemo(() => {
     if (days.length === 0) {
-      return { grid: [] as Cell[][], weekCount: 0, maxCost: 0 }
+      return { grid: [] as Cell[][], maxCost: 0 }
     }
 
     const first = new Date(`${days[0]!.day}T00:00:00Z`)
@@ -87,7 +87,7 @@ export function Heatmap({
     }
     if (week.length > 0) weeks.push(week)
 
-    return { grid: weeks, weekCount: weeks.length, maxCost: max }
+    return { grid: weeks, maxCost: max }
   }, [days])
 
   if (grid.length === 0) return null
@@ -108,7 +108,7 @@ export function Heatmap({
         })}
       </div>
       <div className="flex gap-1">
-        <div className="flex w-5 flex-col justify-between py-[1px] text-right pr-1">
+        <div className="flex w-5 flex-col justify-between py-[1px] pr-1 text-right">
           {WEEKDAYS.map((d) => (
             <span key={d} className="leading-[10px] sm:leading-[12px]">
               {d}
@@ -152,13 +152,10 @@ export function Heatmap({
           ))}
         </div>
       </div>
-      <div className="flex items-center gap-1.5 pl-7 pt-1">
+      <div className="flex items-center gap-1.5 pt-1 pl-7">
         <span>less</span>
         {[0, 1, 2, 3, 4].map((b) => (
-          <span
-            key={b}
-            className={`h-[10px] w-[10px] ${BUCKET_CLASSES[b]}`}
-          />
+          <span key={b} className={`h-[10px] w-[10px] ${BUCKET_CLASSES[b]}`} />
         ))}
         <span>more</span>
         <span className="ml-auto">peak {fmt(maxCost)}</span>

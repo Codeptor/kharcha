@@ -27,6 +27,13 @@ export const config = [
     },
   },
   {
-    ignores: ["dist/**", ".next/**", "**/.turbo/**", "**/coverage/**"],
+    ignores: [
+      ".astro/**",
+      ".next/**",
+      ".vercel/**",
+      "dist/**",
+      "**/.turbo/**",
+      "**/coverage/**",
+    ],
   },
 ]

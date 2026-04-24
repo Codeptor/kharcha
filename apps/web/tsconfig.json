@@ -1,24 +1,21 @@
 {
-  "extends": "@workspace/typescript-config/nextjs.json",
+  "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
     "baseUrl": ".",
     "types": ["bun-types", "node"],
     "paths": {
       "@/*": ["./*"],
-      "@workspace/ui/*": ["../../packages/ui/src/*"]
-    },
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
+      "@workspace/ui/*": ["../../packages/ui/src/*"],
+      "@workspace/usage-core": ["../../packages/usage-core/src/index.ts"],
+      "@workspace/usage-core/*": ["../../packages/usage-core/src/*"]
+    }
   },
   "include": [
-    "next-env.d.ts",
-    "next.config.ts",
+    ".astro/types.d.ts",
+    "src/env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    "**/*.astro"
   ],
   "exclude": ["node_modules"]
 }

@@ -1,0 +1,36 @@
+---
+import { Dashboard } from "@/components/dashboard"
+import { getDashboardData } from "@/lib/dashboard/get-dashboard-data"
+
+import "@workspace/ui/globals.css"
+
+export const prerender = false
+
+const data = await getDashboardData()
+const title = "kharcha"
+const description =
+  "kharcha - track your AI coding spend across Claude Code, Codex, OpenCode, and Kimi"
+---
+
+<!doctype html>
+<html lang="en" class="antialiased">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+    <script is:inline>
+      const storedTheme = localStorage.getItem("theme")
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)")
+        .matches
+      if (storedTheme === "dark" || (!storedTheme && prefersDark)) {
+        document.documentElement.classList.add("dark")
+      }
+    </script>
+  </head>
+  <body class="min-h-svh" style="font-family: var(--font-display)">
+    <Dashboard client:load data={data} />
+  </body>
+</html>

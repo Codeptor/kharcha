@@ -6,15 +6,19 @@ describe("buildChartData", () => {
     const result = buildChartData([
       {
         day: "2026-03-20",
+        source: "claude-code",
         provider: "anthropic",
         model: "claude-opus-4-6",
         costUsd: "1.50",
+        createdAt: null,
       },
       {
         day: "2026-03-20",
+        source: "codex",
         provider: "google",
         model: "gemini-3.1-pro-preview-customtools",
         costUsd: "2.00",
+        createdAt: null,
       },
     ])
 

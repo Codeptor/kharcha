@@ -1,7 +1,13 @@
 "use client"
 
-import { useState, useMemo, useCallback, useRef, useEffect, type MouseEvent as RMouseEvent } from "react"
-import { useTheme } from "next-themes"
+import {
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+  useSyncExternalStore,
+} from "react"
 import type { DashboardData } from "@/lib/dashboard/chart-shape"
 import { computeStreaks, computeModelStats } from "@/lib/dashboard/stats"
 import { ProviderIcon } from "./provider-icon"
@@ -12,9 +18,6 @@ import {
   tickSound,
   selectSound,
   deselectSound,
-  syncStartSound,
-  syncDoneSound,
-  toggleSound,
   enterSound,
   exitSound,
   bootSound,
@@ -23,7 +26,6 @@ import {
   tickVibrate,
   selectVibrate,
   deselectVibrate,
-  syncVibrate,
   toggleVibrate,
 } from "@/lib/haptics"
 
@@ -87,6 +89,52 @@ function timeAgo(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+type Theme = "light" | "dark"
+const themeListeners = new Set<() => void>()
+
+function getThemeSnapshot(): Theme {
+  if (typeof document === "undefined") return "light"
+  return document.documentElement.classList.contains("dark") ? "dark" : "light"
+}
+
+function subscribeTheme(listener: () => void) {
+  themeListeners.add(listener)
+  return () => themeListeners.delete(listener)
+}
+
+function emitThemeChange() {
+  for (const listener of themeListeners) listener()
+}
+
+function getMobileSnapshot(): boolean {
+  return typeof window !== "undefined" && window.innerWidth < 640
+}
+
+function subscribeViewport(listener: () => void) {
+  window.addEventListener("resize", listener)
+  return () => window.removeEventListener("resize", listener)
+}
+
+function useIsMobile() {
+  return useSyncExternalStore(subscribeViewport, getMobileSnapshot, () => false)
+}
+
+function useTheme() {
+  const resolvedTheme = useSyncExternalStore(
+    subscribeTheme,
+    getThemeSnapshot,
+    () => "light"
+  )
+
+  const setTheme = useCallback((theme: Theme) => {
+    document.documentElement.classList.toggle("dark", theme === "dark")
+    localStorage.setItem("theme", theme)
+    emitThemeChange()
+  }, [])
+
+  return { resolvedTheme, setTheme }
+}
+
 function fillGaps(days: DashboardData["days"]): DashboardData["days"] {
   if (days.length <= 1) return days
   const map = new Map(days.map((d) => [d.day, d]))
@@ -104,7 +152,7 @@ function fillGaps(days: DashboardData["days"]): DashboardData["days"] {
 
 function filterByRange(
   days: DashboardData["days"],
-  range: Range,
+  range: Range
 ): DashboardData["days"] {
   if (range === "all") return days
   const n = range === "7d" ? 7 : 30
@@ -117,31 +165,26 @@ function filterByRange(
 const MAX_HEIGHT = 300
 const MOBILE_MAX_HEIGHT = 200
 
-export function Dashboard({
-  data,
-  syncAction,
-}: {
-  data: DashboardData
-  syncAction: () => Promise<void>
-}) {
+export function Dashboard({ data }: { data: DashboardData }) {
   const [range, setRange] = useState<Range>("all")
   const [view, setView] = useState<View>("bars")
   const [hovered, setHovered] = useState<number | null>(null)
   const [locked, setLocked] = useState<number | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set())
   const barsRef = useRef<HTMLDivElement>(null)
   const { resolvedTheme, setTheme } = useTheme()
-  const sfx = useCallback(<T extends unknown[]>(fn: (...args: T) => void, ...args: T) => {
-    if (!muted) fn(...args)
-  }, [muted])
+  const sfx = useCallback(
+    <T extends unknown[]>(fn: (...args: T) => void, ...args: T) => {
+      if (!muted) fn(...args)
+    },
+    [muted]
+  )
 
   const allDays = useMemo(() => fillGaps(data.days), [data.days])
   const rangedDays = useMemo(
     () => filterByRange(allDays, range),
-    [allDays, range],
+    [allDays, range]
   )
   const filteredDays = useMemo(() => {
     if (selectedModels.size === 0) return rangedDays
@@ -153,11 +196,11 @@ export function Dashboard({
   }, [rangedDays, selectedModels])
   const maxCost = useMemo(
     () => Math.max(...filteredDays.map((d) => d.total), 0.01),
-    [filteredDays],
+    [filteredDays]
   )
   const rangeTotal = useMemo(
     () => filteredDays.reduce((s, d) => s + d.total, 0),
-    [filteredDays],
+    [filteredDays]
   )
   const streaks = useMemo(() => computeStreaks(filteredDays), [filteredDays])
   const modelStats = useMemo(() => computeModelStats(rangedDays), [rangedDays])
@@ -201,12 +244,12 @@ export function Dashboard({
 
   const activeDays = useMemo(
     () => filteredDays.filter((d) => d.total > 0).length,
-    [filteredDays],
+    [filteredDays]
   )
 
   const costPerHour = useMemo(
     () => (activeDays > 0 ? rangeTotal / activeDays / 8 : 0),
-    [rangeTotal, activeDays],
+    [rangeTotal, activeDays]
   )
 
   const uniqueModels = useMemo(() => {
@@ -243,10 +286,10 @@ export function Dashboard({
       const ratio = Math.max(0, Math.min(1, x / rect.width))
       return Math.min(
         Math.floor(ratio * filteredDays.length),
-        filteredDays.length - 1,
+        filteredDays.length - 1
       )
     },
-    [filteredDays.length],
+    [filteredDays.length]
   )
 
   const handleChartMouseMove = useCallback(
@@ -259,7 +302,7 @@ export function Dashboard({
       tickVibrate()
       setHovered(idx)
     },
-    [locked, hovered, filteredDays, maxCost, resolveIndex],
+    [locked, hovered, filteredDays, maxCost, resolveIndex, sfx]
   )
 
   const handleTouchMove = useCallback(
@@ -274,7 +317,7 @@ export function Dashboard({
       if (locked !== null) setLocked(idx)
       else setHovered(idx)
     },
-    [locked, hovered, filteredDays, maxCost, resolveIndex],
+    [locked, hovered, filteredDays, maxCost, resolveIndex, sfx]
   )
 
   const handleChartClick = useCallback(
@@ -283,11 +326,16 @@ export function Dashboard({
       const idx = resolveIndex(e.clientX)
       if (idx === null) return
       const isDeselect = locked === idx
-      isDeselect ? sfx(deselectSound) : sfx(selectSound)
-      isDeselect ? deselectVibrate() : selectVibrate()
+      if (isDeselect) {
+        sfx(deselectSound)
+        deselectVibrate()
+      } else {
+        sfx(selectSound)
+        selectVibrate()
+      }
       setLocked(isDeselect ? null : idx)
     },
-    [locked, resolveIndex],
+    [locked, resolveIndex, sfx]
   )
 
   const handleTouchStart = useCallback(
@@ -301,7 +349,7 @@ export function Dashboard({
       selectVibrate()
       setLocked(idx)
     },
-    [resolveIndex],
+    [resolveIndex, sfx]
   )
 
   const handleKeyDown = useCallback(
@@ -322,32 +370,11 @@ export function Dashboard({
         e.preventDefault()
       }
     },
-    [locked, hovered, filteredDays.length],
+    [locked, hovered, filteredDays.length]
   )
 
-  async function handleSync() {
-    if (syncing) return
-    sfx(syncStartSound)
-    syncVibrate()
-    setSyncing(true)
-    setSyncMsg(null)
-    try {
-      await syncAction()
-      sfx(syncDoneSound)
-      setSyncMsg("synced")
-      setTimeout(() => window.location.reload(), 800)
-    } catch (err) {
-      setSyncMsg(err instanceof Error ? err.message : "failed")
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  const [isMobile, setIsMobile] = useState(false)
+  const isMobile = useIsMobile()
   const [syncedLabel, setSyncedLabel] = useState<string | null>(null)
-  useEffect(() => {
-    setIsMobile(window.innerWidth < 640)
-  }, [])
   useEffect(() => {
     if (!data.lastSynced) return
     const update = () => setSyncedLabel(timeAgo(data.lastSynced!))
@@ -370,18 +397,7 @@ export function Dashboard({
             <code className="bg-stone-200 px-1.5 py-0.5 dark:bg-stone-800">
               bun run sync
             </code>{" "}
-            or{" "}
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="underline underline-offset-2 hover:text-stone-700 dark:hover:text-stone-300"
-            >
-              {syncing ? (
-                <span className="animate-pulse">syncing</span>
-              ) : (
-                "sync now"
-              )}
-            </button>
+            to import local usage
           </p>
         </div>
       </div>
@@ -403,7 +419,7 @@ export function Dashboard({
       tabIndex={0}
     >
       {/* Header */}
-      <header className="fixed inset-x-0 top-0 z-50 px-4 pt-4 pb-2 sm:px-6 sm:pt-[30px] sm:pb-3 animate-in fade-in slide-in-from-top-2 duration-500 fill-mode-both">
+      <header className="fixed inset-x-0 top-0 z-50 animate-in px-4 pt-4 pb-2 duration-500 fill-mode-both fade-in slide-in-from-top-2 sm:px-6 sm:pt-[30px] sm:pb-3">
         <div className="mx-auto flex max-w-[1178px] items-center justify-between">
           {/* Range + view pills */}
           <div className="flex items-center gap-3 sm:gap-4">
@@ -418,7 +434,7 @@ export function Dashboard({
                     setLocked(null)
                     setHovered(null)
                   }}
-                  className={`font-mono text-[11px] px-1 transition-colors duration-200 ${
+                  className={`px-1 font-mono text-[11px] transition-colors duration-200 ${
                     range === r
                       ? "text-stone-800 dark:text-stone-100"
                       : "text-stone-400 hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
@@ -442,7 +458,7 @@ export function Dashboard({
                     setLocked(null)
                     setHovered(null)
                   }}
-                  className={`font-mono text-[11px] px-1 transition-colors duration-200 ${
+                  className={`px-1 font-mono text-[11px] transition-colors duration-200 ${
                     view === v
                       ? "text-stone-800 dark:text-stone-100"
                       : "text-stone-400 hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
@@ -457,7 +473,7 @@ export function Dashboard({
           {/* Center: sync status */}
           {data.lastSynced && (
             <span className="hidden font-mono text-[10px] text-stone-400 sm:inline dark:text-stone-600">
-              synced {syncedLabel ?? " "}
+              synced {syncedLabel ?? " "}
             </span>
           )}
 
@@ -503,12 +519,10 @@ export function Dashboard({
       <div className="flex flex-1 flex-col items-center justify-center px-4 pt-16 pb-20 sm:px-8 sm:pt-0 sm:pb-0 lg:px-24">
         {/* Meta line */}
         <div
-          className="mb-6 flex gap-3 font-mono text-[10px] text-stone-400 sm:mb-10 sm:gap-4 sm:text-[11px] dark:text-stone-600 animate-in fade-in duration-700 fill-mode-both"
+          className="mb-6 flex animate-in gap-3 font-mono text-[10px] text-stone-400 duration-700 fill-mode-both fade-in sm:mb-10 sm:gap-4 sm:text-[11px] dark:text-stone-600"
           style={{ animationDelay: "200ms" }}
         >
-          <span>
-            {filteredDays.filter((d) => d.total > 0).length} days
-          </span>
+          <span>{filteredDays.filter((d) => d.total > 0).length} days</span>
           <span className="text-stone-300 dark:text-stone-700">·</span>
           <span>{uniqueSources} sources</span>
           <span className="text-stone-300 dark:text-stone-700">·</span>
@@ -540,141 +554,147 @@ export function Dashboard({
               }}
               onClick={(idx) => {
                 const isDeselect = locked === idx
-                isDeselect ? sfx(deselectSound) : sfx(selectSound)
-                isDeselect ? deselectVibrate() : selectVibrate()
+                if (isDeselect) {
+                  sfx(deselectSound)
+                  deselectVibrate()
+                } else {
+                  sfx(selectSound)
+                  selectVibrate()
+                }
                 setLocked(isDeselect ? null : idx)
               }}
               fmt={fmt}
             />
           </div>
         ) : (
-        <div
-          className="relative cursor-default touch-none"
-          onMouseEnter={() => sfx(enterSound)}
-          onMouseMove={handleChartMouseMove}
-          onClick={handleChartClick}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onMouseLeave={() => {
-            if (locked === null) {
-              sfx(exitSound)
-              setHovered(null)
-            }
-          }}
-        >
           <div
-            ref={barsRef}
-            className="relative mx-auto flex w-fit items-end animate-in fade-in slide-in-from-bottom-4 duration-700 fill-mode-both"
-            style={{ gap: barGap, animationDelay: "400ms" }}
+            className="relative cursor-default touch-none"
+            onMouseEnter={() => sfx(enterSound)}
+            onMouseMove={handleChartMouseMove}
+            onClick={handleChartClick}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onMouseLeave={() => {
+              if (locked === null) {
+                sfx(exitSound)
+                setHovered(null)
+              }
+            }}
           >
-            {filteredDays.map((day, i) => {
-              const dimmed =
-                (hovered !== null || locked !== null) && activeIndex !== i
-              const isActive = i === activeIndex
-              const isPeak = i === peakIndex && day.total > 0
-              const segments = [...day.segments].sort(
-                (a, b) => b.costUsd - a.costUsd,
-              )
+            <div
+              ref={barsRef}
+              className="relative mx-auto flex w-fit animate-in items-end duration-700 fill-mode-both fade-in slide-in-from-bottom-4"
+              style={{ gap: barGap, animationDelay: "400ms" }}
+            >
+              {filteredDays.map((day, i) => {
+                const dimmed =
+                  (hovered !== null || locked !== null) && activeIndex !== i
+                const isActive = i === activeIndex
+                const isPeak = i === peakIndex && day.total > 0
+                const segments = [...day.segments].sort(
+                  (a, b) => b.costUsd - a.costUsd
+                )
 
-              return (
-                <div
-                  key={day.day}
-                  className="relative flex flex-col gap-0.5 select-none animate-grow-up"
-                  style={{ width: 1, animationDelay: `${450 + i * 8}ms` }}
-                >
-                  {day.total <= 0 ? (
-                    <div
-                      className={`h-1 w-full transition-colors duration-150 ${
-                        dimmed
-                          ? "bg-stone-300 dark:bg-stone-800"
-                          : "bg-stone-400 dark:bg-stone-600"
-                      }`}
-                    />
-                  ) : (
-                    segments.map((seg) => (
+                return (
+                  <div
+                    key={day.day}
+                    className="animate-grow-up relative flex flex-col gap-0.5 select-none"
+                    style={{ width: 1, animationDelay: `${450 + i * 8}ms` }}
+                  >
+                    {day.total <= 0 ? (
                       <div
-                        key={seg.key}
-                        className={`w-full transition-colors duration-150 ${
+                        className={`h-1 w-full transition-colors duration-150 ${
                           dimmed
-                            ? isPeak ? "bg-red-300 dark:bg-red-900" : "bg-stone-400 dark:bg-stone-700"
-                            : isPeak ? "bg-red-500 dark:bg-red-400" : "bg-stone-900 dark:bg-stone-100"
+                            ? "bg-stone-300 dark:bg-stone-800"
+                            : "bg-stone-400 dark:bg-stone-600"
                         }`}
-                        style={{
-                          height: Math.max(
-                            1,
-                            (seg.costUsd / maxCost) * chartHeight,
-                          ),
-                        }}
                       />
-                    ))
-                  )}
+                    ) : (
+                      segments.map((seg) => (
+                        <div
+                          key={seg.key}
+                          className={`w-full transition-colors duration-150 ${
+                            dimmed
+                              ? isPeak
+                                ? "bg-red-300 dark:bg-red-900"
+                                : "bg-stone-400 dark:bg-stone-700"
+                              : isPeak
+                                ? "bg-red-500 dark:bg-red-400"
+                                : "bg-stone-900 dark:bg-stone-100"
+                          }`}
+                          style={{
+                            height: Math.max(
+                              1,
+                              (seg.costUsd / maxCost) * chartHeight
+                            ),
+                          }}
+                        />
+                      ))
+                    )}
 
-                  {isActive && (
-                    <>
-                      <div
-                        className="pointer-events-none absolute bottom-0 left-1/2 w-[2px] -translate-x-1/2 bg-amber-500/30 dark:bg-amber-400/25"
-                        style={{ height: chartHeight + 20 }}
-                      />
-                      <div
-                        className="pointer-events-none absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap text-center text-[11px] tracking-tight text-stone-500 select-none sm:mt-3 sm:text-[13px] dark:text-stone-400"
-                        style={{ fontFamily: "var(--font-display)" }}
-                      >
-                        {fmtDate(day.day)}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )
-            })}
+                    {isActive && (
+                      <>
+                        <div
+                          className="pointer-events-none absolute bottom-0 left-1/2 w-[2px] -translate-x-1/2 bg-amber-500/30 dark:bg-amber-400/25"
+                          style={{ height: chartHeight + 20 }}
+                        />
+                        <div
+                          className="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 text-center text-[11px] tracking-tight whitespace-nowrap text-stone-500 select-none sm:mt-3 sm:text-[13px] dark:text-stone-400"
+                          style={{ fontFamily: "var(--font-display)" }}
+                        >
+                          {fmtDate(day.day)}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
         )}
 
         {/* Active day breakdown */}
         {view !== "stats" && (
-        <div className="mt-8 h-[140px] sm:mt-10 sm:h-[180px]">
-          <div
-            className="flex flex-col gap-1 transition-opacity duration-200 sm:gap-1.5"
-            style={{ opacity: sorted.length > 0 ? 1 : 0 }}
-          >
-            {sorted.map((seg, i) => (
-              <div
-                key={seg.key}
-                className="flex items-center whitespace-nowrap animate-in fade-in slide-in-from-bottom-1"
-                style={{
-                  animationDelay: `${i * 30}ms`,
-                  animationFillMode: "both",
-                }}
-              >
-                <span className="inline-flex w-4 justify-center sm:w-5">
-                  <ProviderIcon
-                    name={providerFromKey(seg.key)}
-                    size={12}
-                  />
-                </span>
-                <span
-                  className="inline-block w-28 truncate text-[11px] sm:w-44 sm:text-[13px] text-stone-700 dark:text-stone-300"
-                  style={{ fontFamily: "var(--font-display)" }}
+          <div className="mt-8 h-[140px] sm:mt-10 sm:h-[180px]">
+            <div
+              className="flex flex-col gap-1 transition-opacity duration-200 sm:gap-1.5"
+              style={{ opacity: sorted.length > 0 ? 1 : 0 }}
+            >
+              {sorted.map((seg, i) => (
+                <div
+                  key={seg.key}
+                  className="flex animate-in items-center whitespace-nowrap fade-in slide-in-from-bottom-1"
+                  style={{
+                    animationDelay: `${i * 30}ms`,
+                    animationFillMode: "both",
+                  }}
                 >
-                  {displayModel(seg.label)}
-                </span>
-                <span className="inline-block w-16 text-right font-mono text-[11px] tabular-nums sm:w-20 sm:text-[13px] text-stone-500 dark:text-stone-400">
-                  {fmt(seg.costUsd)}
-                </span>
-                <span className="inline-flex w-5 justify-end sm:w-6">
-                  <ProviderIcon name={seg.source} size={11} />
-                </span>
-              </div>
-            ))}
+                  <span className="inline-flex w-4 justify-center sm:w-5">
+                    <ProviderIcon name={providerFromKey(seg.key)} size={12} />
+                  </span>
+                  <span
+                    className="inline-block w-28 truncate text-[11px] text-stone-700 sm:w-44 sm:text-[13px] dark:text-stone-300"
+                    style={{ fontFamily: "var(--font-display)" }}
+                  >
+                    {displayModel(seg.label)}
+                  </span>
+                  <span className="inline-block w-16 text-right font-mono text-[11px] text-stone-500 tabular-nums sm:w-20 sm:text-[13px] dark:text-stone-400">
+                    {fmt(seg.costUsd)}
+                  </span>
+                  <span className="inline-flex w-5 justify-end sm:w-6">
+                    <ProviderIcon name={seg.source} size={11} />
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
         )}
 
         {/* Mobile sync status */}
         {data.lastSynced && (
           <div className="mt-2 sm:hidden">
             <span className="font-mono text-[10px] text-stone-400 dark:text-stone-600">
-              synced {syncedLabel ?? " "}
+              synced {syncedLabel ?? " "}
             </span>
           </div>
         )}
@@ -682,7 +702,7 @@ export function Dashboard({
 
       {/* Footer: provider breakdown */}
       <footer
-        className="fixed inset-x-0 bottom-0 px-4 pb-4 pt-2 sm:pb-6 sm:pt-3 animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both"
+        className="fixed inset-x-0 bottom-0 animate-in px-4 pt-2 pb-4 duration-500 fill-mode-both fade-in slide-in-from-bottom-2 sm:pt-3 sm:pb-6"
         style={{ animationDelay: "800ms" }}
       >
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:gap-x-4">
@@ -690,7 +710,9 @@ export function Dashboard({
             const providerModels = modelStats
               .filter((m) => m.provider === p.provider)
               .map((m) => m.key)
-            const anySelected = providerModels.some((k) => selectedModels.has(k))
+            const anySelected = providerModels.some((k) =>
+              selectedModels.has(k)
+            )
             return (
               <button
                 key={p.provider}

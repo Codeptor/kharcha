@@ -1,6 +1,6 @@
 # Kharcha
 
-Public AI usage dashboard for Claude Code, Codex, and OpenCode.
+Public AI usage dashboard for Claude Code, Codex, OpenCode, and Kimi.
 
 ## Setup
 
@@ -48,11 +48,11 @@ The local sync script reads usage data from your machine, normalizes provider an
 
 ## Dashboard
 
-The public page is read-only. The only write path is `POST /api/sync`, and it requires a valid `SYNC_SECRET` bearer token.
+The public page is server-rendered by Astro and read-only. The protected write path is `POST /api/sync`, and it requires a valid `SYNC_SECRET` bearer token.
 
 ## Vercel
 
-Set the same production env vars in Vercel:
+The Astro app uses the official Vercel adapter for SSR. Set the same production env vars in Vercel:
 
 - `DATABASE_URL`
 - `SYNC_SECRET`
