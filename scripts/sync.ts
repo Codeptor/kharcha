@@ -5,6 +5,7 @@ import {
   buildSyncBatch,
   fetchModelsDevCatalog,
   readClaudeCodeUsage,
+  readClaudeStatsCache,
   readCodexUsage,
   readKimiUsage,
   readOpenCodeUsage,
@@ -69,6 +70,13 @@ async function loadUsageRows() {
     const result = await target.reader(target.path)
     console.log(`  ${target.name}: ${result.length} rows`)
     rows.push(...result)
+  }
+
+  const statsCachePath = process.env.CLAUDE_STATS_CACHE_PATH ?? join(home, ".claude/stats-cache.json")
+  if (await pathExists(statsCachePath)) {
+    const backfill = await readClaudeStatsCache(statsCachePath, rows)
+    console.log(`  Claude stats cache: ${backfill.length} backfill rows`)
+    rows.push(...backfill)
   }
 
   return rows
