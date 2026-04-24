@@ -3,11 +3,10 @@
 import { useState, useMemo, useCallback, useRef, useEffect, type MouseEvent as RMouseEvent } from "react"
 import { useTheme } from "next-themes"
 import type { DashboardData } from "@/lib/dashboard/chart-shape"
-import { computeStreaks, computeModelStats, providerSparkline } from "@/lib/dashboard/stats"
+import { computeStreaks, computeModelStats } from "@/lib/dashboard/stats"
 import { ProviderIcon } from "./provider-icon"
 import { Heatmap } from "./heatmap"
 import { StatsPanel } from "./stats-panel"
-import { ProviderSparkline } from "./provider-sparkline"
 import { Volume2, VolumeOff } from "lucide-react"
 import {
   tickSound,
@@ -162,13 +161,6 @@ export function Dashboard({
   )
   const streaks = useMemo(() => computeStreaks(filteredDays), [filteredDays])
   const modelStats = useMemo(() => computeModelStats(rangedDays), [rangedDays])
-  const providerSparks = useMemo(() => {
-    const m = new Map<string, number[]>()
-    for (const p of data.byProvider) {
-      m.set(p.provider, providerSparkline(allDays, p.provider, 30))
-    }
-    return m
-  }, [data.byProvider, allDays])
 
   const toggleModel = useCallback((key: string) => {
     setSelectedModels((prev) => {
@@ -691,7 +683,6 @@ export function Dashboard({
               .filter((m) => m.provider === p.provider)
               .map((m) => m.key)
             const anySelected = providerModels.some((k) => selectedModels.has(k))
-            const spark = providerSparks.get(p.provider) ?? []
             return (
               <button
                 key={p.provider}
@@ -725,7 +716,6 @@ export function Dashboard({
                 >
                   {p.provider}
                 </span>
-                <ProviderSparkline values={spark} />
                 <span className="font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
                   {fmt(p.costUsd)}
                 </span>

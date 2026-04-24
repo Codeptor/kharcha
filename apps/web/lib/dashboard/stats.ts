@@ -95,22 +95,3 @@ export function computeModelStats(days: DashboardData["days"]): ModelStat[] {
   return stats.sort((a, b) => b.costUsd - a.costUsd)
 }
 
-export function providerSparkline(
-  days: DashboardData["days"],
-  provider: string,
-  buckets = 30,
-): number[] {
-  if (days.length === 0) return new Array(buckets).fill(0)
-  const slice = days.slice(-buckets)
-  const result = new Array(buckets).fill(0)
-  const offset = buckets - slice.length
-  for (let i = 0; i < slice.length; i++) {
-    const day = slice[i]!
-    let sum = 0
-    for (const seg of day.segments) {
-      if (seg.key.startsWith(`${provider}:`)) sum += seg.costUsd
-    }
-    result[offset + i] = sum
-  }
-  return result
-}
