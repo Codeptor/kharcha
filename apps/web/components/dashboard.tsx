@@ -344,9 +344,17 @@ export function Dashboard({
   }
 
   const [isMobile, setIsMobile] = useState(false)
+  const [syncedLabel, setSyncedLabel] = useState<string | null>(null)
   useEffect(() => {
     setIsMobile(window.innerWidth < 640)
   }, [])
+  useEffect(() => {
+    if (!data.lastSynced) return
+    const update = () => setSyncedLabel(timeAgo(data.lastSynced!))
+    update()
+    const id = setInterval(update, 60_000)
+    return () => clearInterval(id)
+  }, [data.lastSynced])
   const barGap = isMobile ? 4 : 10
   const chartHeight = isMobile ? MOBILE_MAX_HEIGHT : MAX_HEIGHT
 
@@ -449,7 +457,7 @@ export function Dashboard({
           {/* Center: sync status */}
           {data.lastSynced && (
             <span className="hidden font-mono text-[10px] text-stone-400 sm:inline dark:text-stone-600">
-              synced {timeAgo(data.lastSynced)}
+              synced {syncedLabel ?? " "}
             </span>
           )}
 
@@ -666,7 +674,7 @@ export function Dashboard({
         {data.lastSynced && (
           <div className="mt-2 sm:hidden">
             <span className="font-mono text-[10px] text-stone-400 dark:text-stone-600">
-              synced {timeAgo(data.lastSynced)}
+              synced {syncedLabel ?? " "}
             </span>
           </div>
         )}
