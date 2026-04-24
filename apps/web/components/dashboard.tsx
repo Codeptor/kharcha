@@ -3,7 +3,11 @@
 import { useState, useMemo, useCallback, useRef, useEffect, type MouseEvent as RMouseEvent } from "react"
 import { useTheme } from "next-themes"
 import type { DashboardData } from "@/lib/dashboard/chart-shape"
+import { computeStreaks, computeModelStats, providerSparkline } from "@/lib/dashboard/stats"
 import { ProviderIcon } from "./provider-icon"
+import { Heatmap } from "./heatmap"
+import { StatsPanel } from "./stats-panel"
+import { ProviderSparkline } from "./provider-sparkline"
 import { Volume2, VolumeOff } from "lucide-react"
 import {
   tickSound,
@@ -25,6 +29,7 @@ import {
 } from "@/lib/haptics"
 
 type Range = "7d" | "30d" | "all"
+type View = "bars" | "heatmap" | "stats"
 
 function fmt(v: number) {
   if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`
@@ -121,11 +126,13 @@ export function Dashboard({
   syncAction: () => Promise<void>
 }) {
   const [range, setRange] = useState<Range>("all")
+  const [view, setView] = useState<View>("bars")
   const [hovered, setHovered] = useState<number | null>(null)
   const [locked, setLocked] = useState<number | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
+  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set())
   const barsRef = useRef<HTMLDivElement>(null)
   const { resolvedTheme, setTheme } = useTheme()
   const sfx = useCallback(<T extends unknown[]>(fn: (...args: T) => void, ...args: T) => {
@@ -133,10 +140,18 @@ export function Dashboard({
   }, [muted])
 
   const allDays = useMemo(() => fillGaps(data.days), [data.days])
-  const filteredDays = useMemo(
+  const rangedDays = useMemo(
     () => filterByRange(allDays, range),
     [allDays, range],
   )
+  const filteredDays = useMemo(() => {
+    if (selectedModels.size === 0) return rangedDays
+    return rangedDays.map((d) => {
+      const segments = d.segments.filter((s) => selectedModels.has(s.key))
+      const total = segments.reduce((s, seg) => s + seg.costUsd, 0)
+      return { ...d, segments, total }
+    })
+  }, [rangedDays, selectedModels])
   const maxCost = useMemo(
     () => Math.max(...filteredDays.map((d) => d.total), 0.01),
     [filteredDays],
@@ -145,6 +160,26 @@ export function Dashboard({
     () => filteredDays.reduce((s, d) => s + d.total, 0),
     [filteredDays],
   )
+  const streaks = useMemo(() => computeStreaks(filteredDays), [filteredDays])
+  const modelStats = useMemo(() => computeModelStats(rangedDays), [rangedDays])
+  const providerSparks = useMemo(() => {
+    const m = new Map<string, number[]>()
+    for (const p of data.byProvider) {
+      m.set(p.provider, providerSparkline(allDays, p.provider, 30))
+    }
+    return m
+  }, [data.byProvider, allDays])
+
+  const toggleModel = useCallback((key: string) => {
+    setSelectedModels((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+    setLocked(null)
+    setHovered(null)
+  }, [])
 
   const providers = useMemo(() => {
     const map = new Map<string, number>()
@@ -370,27 +405,53 @@ export function Dashboard({
       {/* Header */}
       <header className="fixed inset-x-0 top-0 z-50 px-4 pt-4 pb-2 sm:px-6 sm:pt-[30px] sm:pb-3 animate-in fade-in slide-in-from-top-2 duration-500 fill-mode-both">
         <div className="mx-auto flex max-w-[1178px] items-center justify-between">
-          {/* Range pills */}
-          <div className="flex gap-1.5 sm:gap-2">
-            {(["7d", "30d", "all"] as const).map((r) => (
-              <button
-                key={r}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  toggleVibrate()
-                  setRange(r)
-                  setLocked(null)
-                  setHovered(null)
-                }}
-                className={`font-mono text-[11px] px-1 transition-colors duration-200 ${
-                  range === r
-                    ? "text-stone-800 dark:text-stone-100"
-                    : "text-stone-400 hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
-                }`}
-              >
-                {r}
-              </button>
-            ))}
+          {/* Range + view pills */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="flex gap-1.5 sm:gap-2">
+              {(["7d", "30d", "all"] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleVibrate()
+                    setRange(r)
+                    setLocked(null)
+                    setHovered(null)
+                  }}
+                  className={`font-mono text-[11px] px-1 transition-colors duration-200 ${
+                    range === r
+                      ? "text-stone-800 dark:text-stone-100"
+                      : "text-stone-400 hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <span className="hidden text-stone-300 sm:inline dark:text-stone-700">
+              ·
+            </span>
+            <div className="flex gap-1.5 sm:gap-2">
+              {(["bars", "heatmap", "stats"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleVibrate()
+                    setView(v)
+                    setLocked(null)
+                    setHovered(null)
+                  }}
+                  className={`font-mono text-[11px] px-1 transition-colors duration-200 ${
+                    view === v
+                      ? "text-stone-800 dark:text-stone-100"
+                      : "text-stone-400 hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Center: sync status */}
@@ -455,6 +516,38 @@ export function Dashboard({
         </div>
 
         {/* Chart area */}
+        {view === "stats" ? (
+          <div className="w-full max-w-[700px]">
+            <StatsPanel
+              streaks={streaks}
+              modelStats={modelStats}
+              onSelectModel={(k) => {
+                sfx(selectSound)
+                selectVibrate()
+                toggleModel(k)
+              }}
+              selectedModels={selectedModels}
+            />
+          </div>
+        ) : view === "heatmap" ? (
+          <div className="w-full max-w-[920px] overflow-x-auto">
+            <Heatmap
+              days={filteredDays}
+              activeIndex={activeIndex}
+              onHover={(idx) => {
+                if (locked !== null) return
+                setHovered(idx)
+              }}
+              onClick={(idx) => {
+                const isDeselect = locked === idx
+                isDeselect ? sfx(deselectSound) : sfx(selectSound)
+                isDeselect ? deselectVibrate() : selectVibrate()
+                setLocked(isDeselect ? null : idx)
+              }}
+              fmt={fmt}
+            />
+          </div>
+        ) : (
         <div
           className="relative cursor-default touch-none"
           onMouseEnter={() => sfx(enterSound)}
@@ -535,8 +628,10 @@ export function Dashboard({
             })}
           </div>
         </div>
+        )}
 
         {/* Active day breakdown */}
+        {view !== "stats" && (
         <div className="mt-8 h-[140px] sm:mt-10 sm:h-[180px]">
           <div
             className="flex flex-col gap-1 transition-opacity duration-200 sm:gap-1.5"
@@ -573,6 +668,7 @@ export function Dashboard({
             ))}
           </div>
         </div>
+        )}
 
         {/* Mobile sync status */}
         {data.lastSynced && (
@@ -590,28 +686,69 @@ export function Dashboard({
         style={{ animationDelay: "800ms" }}
       >
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:gap-x-4">
-          {providers.map((p, i) => (
-            <span
-              key={p.provider}
-              className="inline-flex items-center gap-1 sm:gap-1.5"
-            >
-              <ProviderIcon name={p.provider} size={11} />
-              <span
-                className="text-[10px] text-stone-400 sm:text-[11px] dark:text-stone-600"
-                style={{ fontFamily: "var(--font-display)" }}
+          {providers.map((p, i) => {
+            const providerModels = modelStats
+              .filter((m) => m.provider === p.provider)
+              .map((m) => m.key)
+            const anySelected = providerModels.some((k) => selectedModels.has(k))
+            const spark = providerSparks.get(p.provider) ?? []
+            return (
+              <button
+                key={p.provider}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleVibrate()
+                  setSelectedModels((prev) => {
+                    const next = new Set(prev)
+                    const allSelected = providerModels.every((k) => next.has(k))
+                    if (allSelected) {
+                      for (const k of providerModels) next.delete(k)
+                    } else {
+                      for (const k of providerModels) next.add(k)
+                    }
+                    return next
+                  })
+                  setLocked(null)
+                  setHovered(null)
+                }}
+                className={`inline-flex items-center gap-1 transition-opacity sm:gap-1.5 ${
+                  selectedModels.size > 0 && !anySelected
+                    ? "opacity-40 hover:opacity-70"
+                    : "hover:opacity-80"
+                }`}
               >
-                {p.provider}
-              </span>
-              <span className="font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
-                {fmt(p.costUsd)}
-              </span>
-              {i < providers.length - 1 && (
-                <span className="ml-1 hidden text-stone-300 sm:ml-3 sm:inline dark:text-stone-700">
-                  ·
+                <ProviderIcon name={p.provider} size={11} />
+                <span
+                  className="text-[10px] text-stone-400 sm:text-[11px] dark:text-stone-600"
+                  style={{ fontFamily: "var(--font-display)" }}
+                >
+                  {p.provider}
                 </span>
-              )}
-            </span>
-          ))}
+                <ProviderSparkline values={spark} />
+                <span className="font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
+                  {fmt(p.costUsd)}
+                </span>
+                {i < providers.length - 1 && (
+                  <span className="ml-1 hidden text-stone-300 sm:ml-3 sm:inline dark:text-stone-700">
+                    ·
+                  </span>
+                )}
+              </button>
+            )
+          })}
+          {selectedModels.size > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedModels(new Set())
+              }}
+              className="font-mono text-[10px] text-stone-400 underline underline-offset-2 sm:text-[11px] dark:text-stone-600"
+            >
+              clear filter
+            </button>
+          )}
         </div>
       </footer>
     </div>
