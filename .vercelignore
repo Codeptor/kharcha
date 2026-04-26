@@ -3,5 +3,5 @@ node_modules
 .turbo
 .playwright-mcp
 docs
-*.png
 *.log
+!apps/web/public/**

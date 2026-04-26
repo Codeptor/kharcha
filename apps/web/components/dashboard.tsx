@@ -327,8 +327,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
     if (!activeDay) return []
     return [...activeDay.segments]
       .sort((a, b) => b.costUsd - a.costUsd)
-      .filter((s) => s.costUsd >= 0.01)
-      .slice(0, 6)
+      .slice(0, 8)
   }, [activeDay])
 
   const resolveIndex = useCallback(
