@@ -8,6 +8,7 @@ import kimiSvg from "@lobehub/icons-static-svg/icons/kimi.svg?raw"
 import moonshotSvg from "@lobehub/icons-static-svg/icons/moonshot.svg?raw"
 import opencodeSvg from "@lobehub/icons-static-svg/icons/opencode.svg?raw"
 import githubcopilotSvg from "@lobehub/icons-static-svg/icons/githubcopilot.svg?raw"
+import nvidiaSvg from "@lobehub/icons-static-svg/icons/nvidia.svg?raw"
 
 function extractPaths(svg: string): string[] {
   const matches = svg.matchAll(/\sd="([^"]+)"/g)
@@ -29,6 +30,7 @@ const ICON_PATHS: Record<string, string[]> = {
   "kimi-for-coding": extractPaths(kimiSvg),
   "github-copilot": extractPaths(githubcopilotSvg),
   opencode: extractPaths(opencodeSvg),
+  nvidia: extractPaths(nvidiaSvg),
 }
 
 export function ProviderIcon({
