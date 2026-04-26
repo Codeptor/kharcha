@@ -42,6 +42,28 @@ export function tickSound(_ratio = 0.5) {
   try { tickDown() } catch {}
 }
 
+function cellChirp(ratio: number) {
+  const c = getCtx()
+  const t = c.currentTime
+  const r = Math.max(0, Math.min(1, ratio))
+  const base = 520 + r * 720
+  const osc = c.createOscillator()
+  const gain = c.createGain()
+  osc.type = "triangle"
+  osc.frequency.setValueAtTime(base, t)
+  osc.frequency.exponentialRampToValueAtTime(base * 1.18, t + 0.02)
+  gain.gain.setValueAtTime(0.12 + r * 0.06, t)
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05)
+  osc.connect(gain)
+  gain.connect(c.destination)
+  osc.start(t)
+  osc.stop(t + 0.06)
+}
+
+export function cellSound(ratio = 0.5) {
+  try { cellChirp(ratio) } catch {}
+}
+
 function clickNoise() {
   const c = getCtx()
   const t = c.currentTime

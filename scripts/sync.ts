@@ -32,6 +32,82 @@ async function loadPricingLookup() {
     lookup.set(`${row.providerId}:${row.modelId}`, toPricingSnapshot(row))
   }
 
+  // NVIDIA NIM is free-tier hosted; models.dev lists most NIM models at $0/$0.
+  // For tracking "what would these tokens cost retail", swap $0 NIM entries
+  // with the most expensive equivalent priced under another provider, matched
+  // by trailing model-name segment.
+  const lastSegment = (id: string) => id.split("/").pop() ?? id
+  const nimZeroKeys: string[] = []
+  for (const [key, snap] of lookup) {
+    if (!key.startsWith("nvidia:")) continue
+    const allZero =
+      (snap.inputCost ?? 0) === 0 && (snap.outputCost ?? 0) === 0
+    if (allZero) nimZeroKeys.push(key)
+  }
+  // Prefer "native" first-party providers, then well-known cheap hosts,
+  // and only fall back to anything else. Within the chosen tier, pick the
+  // cheapest non-zero entry so the shadow cost reflects realistic retail.
+  const PROVIDER_TIERS = [
+    new Set([
+      "anthropic",
+      "openai",
+      "moonshotai",
+      "deepseek",
+      "groq",
+      "google",
+      "mistral",
+      "cohere",
+      "minimax",
+    ]),
+    new Set([
+      "amazon-bedrock",
+      "azure",
+      "azure-cognitive-services",
+      "vertex",
+      "deepinfra",
+      "fireworks",
+      "together",
+    ]),
+  ]
+  const providerTier = (id: string) => {
+    for (let i = 0; i < PROVIDER_TIERS.length; i++) {
+      if (PROVIDER_TIERS[i]!.has(id)) return i
+    }
+    return PROVIDER_TIERS.length
+  }
+  let shadowed = 0
+  for (const key of nimZeroKeys) {
+    const modelId = key.slice("nvidia:".length)
+    const tail = lastSegment(modelId)
+    let best: ReturnType<typeof toPricingSnapshot> | null = null
+    let bestTier = Number.POSITIVE_INFINITY
+    let bestRate = Number.POSITIVE_INFINITY
+    for (const [otherKey, otherSnap] of lookup) {
+      if (otherKey === key) continue
+      const colon = otherKey.indexOf(":")
+      const providerId = otherKey.slice(0, colon)
+      const otherModel = otherKey.slice(colon + 1)
+      if (lastSegment(otherModel) !== tail) continue
+      const rate =
+        (otherSnap.inputCost ?? 0) + (otherSnap.outputCost ?? 0)
+      if (rate <= 0) continue
+      const tier = providerTier(providerId)
+      if (
+        tier < bestTier ||
+        (tier === bestTier && rate < bestRate)
+      ) {
+        bestTier = tier
+        bestRate = rate
+        best = otherSnap
+      }
+    }
+    if (best) {
+      lookup.set(key, best)
+      shadowed += 1
+    }
+  }
+  if (shadowed > 0) console.log(`  shadow-priced ${shadowed} NVIDIA NIM models from retail equivalents`)
+
   console.log(`  ${catalog.length} models loaded`)
   return lookup
 }

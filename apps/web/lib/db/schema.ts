@@ -1,4 +1,4 @@
-import { numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core"
+import { bigint, integer, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core"
 
 export const usageRows = pgTable(
   "usage_rows",
@@ -11,6 +11,10 @@ export const usageRows = pgTable(
     costUsd: numeric("cost_usd", { precision: 12, scale: 4 }).notNull(),
     pricingMode: text("pricing_mode").notNull(),
     pricingSnapshotKey: text("pricing_snapshot_key"),
+    inputTokens: bigint("input_tokens", { mode: "number" }),
+    outputTokens: bigint("output_tokens", { mode: "number" }),
+    cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }),
+    cacheWriteTokens: bigint("cache_write_tokens", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
@@ -32,6 +36,18 @@ export const dailyRollups = pgTable(
       table.provider,
       table.model,
     ),
+  }),
+)
+
+export const hourOfDayBuckets = pgTable(
+  "hour_of_day_buckets",
+  {
+    dayOfWeek: integer("day_of_week").notNull(),
+    hour: integer("hour").notNull(),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 4 }).notNull(),
+  },
+  (table) => ({
+    hourOfDayUniqIdx: uniqueIndex("hour_of_day_uniq_idx").on(table.dayOfWeek, table.hour),
   }),
 )
 

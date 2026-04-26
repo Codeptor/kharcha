@@ -25,11 +25,26 @@ type ProviderTotal = {
   costUsd: number
 }
 
+export type HourBucket = {
+  dayOfWeek: number
+  hour: number
+  costUsd: number
+}
+
+export type TokenTotals = {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+}
+
 export type DashboardData = {
   days: ChartDay[]
   lifetimeTotalUsd: number
   lastSynced: string | null
   byProvider: ProviderTotal[]
+  hourBuckets?: HourBucket[]
+  tokenTotals?: TokenTotals
 }
 
 export function buildChartData(rows: InputRow[]): DashboardData {

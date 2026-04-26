@@ -8,6 +8,20 @@
       "when": 1773958369453,
       "tag": "0000_usage_dashboard",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777201613097,
+      "tag": "0001_soft_mac_gargan",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777201978057,
+      "tag": "0002_futuristic_talon",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,13 @@
+{
+  "name": "kharcha",
+  "short_name": "kharcha",
+  "description": "track your AI coding spend across Claude Code, Codex, OpenCode, and Kimi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ede8e1",
+  "theme_color": "#1c1917",
+  "icons": [
+    { "src": "/icon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" }
+  ]
+}

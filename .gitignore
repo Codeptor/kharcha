@@ -36,3 +36,6 @@ npm-debug.log*
 .DS_Store
 *.pem
 docs/
+.playwright-mcp/
+.codex
+stats-view.png

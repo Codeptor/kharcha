@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://kharcha.bhanueso.dev/sitemap.xml

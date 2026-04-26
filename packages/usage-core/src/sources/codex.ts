@@ -4,6 +4,14 @@ import { Database } from "bun:sqlite"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
 
+type CodexTokenUsage = {
+  input_tokens?: number
+  cached_input_tokens?: number
+  output_tokens?: number
+  reasoning_output_tokens?: number
+  total_tokens?: number
+}
+
 type CodexSessionLine = {
   timestamp?: string
   type?: string
@@ -11,6 +19,11 @@ type CodexSessionLine = {
     id?: string
     model_provider?: string
     model?: string
+    type?: string
+    info?: {
+      total_token_usage?: CodexTokenUsage
+      last_token_usage?: CodexTokenUsage
+    } | null
   }
 }
 
@@ -74,32 +87,61 @@ function parseJsonlLine(line: string): CodexSessionLine | null {
 
 async function readCodexJsonl(filePath: string): Promise<UsageSlice[]> {
   const content = await readFile(filePath, "utf8")
-  const rows: UsageSlice[] = []
+
+  let sessionMeta: CodexSessionLine | null = null
+  let turnContextModel: string | null = null
+  let lastTotal: CodexTokenUsage | null = null
 
   for (const line of content.split("\n")) {
     if (!line.trim()) continue
     const parsed = parseJsonlLine(line)
-    const provider = parsed?.payload?.model_provider
-    const model = parsed?.payload?.model
-    if (!parsed || parsed.type !== "session_meta" || !provider || !model) continue
+    if (!parsed) continue
+    if (parsed.type === "session_meta") {
+      sessionMeta = parsed
+      continue
+    }
+    if (parsed.type === "turn_context" && !turnContextModel) {
+      const m = (parsed.payload as Record<string, unknown> | undefined)?.model
+      if (typeof m === "string" && m.length > 0) turnContextModel = m
+      continue
+    }
+    if (
+      parsed.type === "event_msg" &&
+      parsed.payload?.type === "token_count" &&
+      parsed.payload.info?.total_token_usage
+    ) {
+      lastTotal = parsed.payload.info.total_token_usage
+    }
+  }
 
-    const normalized = normalizeModelKey(provider, model)
-    rows.push({
+  const provider = sessionMeta?.payload?.model_provider
+  const model =
+    sessionMeta?.payload?.model ?? turnContextModel ?? (provider ? inferDefaultModel(provider) : null)
+  if (!sessionMeta || !provider || !model) return []
+
+  const normalized = normalizeModelKey(provider, model)
+  const inputRaw = lastTotal?.input_tokens ?? 0
+  const cached = lastTotal?.cached_input_tokens ?? 0
+  const output = lastTotal?.output_tokens ?? 0
+  const reasoning = lastTotal?.reasoning_output_tokens ?? 0
+  const newInput = Math.max(0, inputRaw - cached)
+  const totalOutput = output + reasoning
+
+  return [
+    {
       source: "codex",
       provider: normalized.provider,
       model: normalized.model,
-      day: toDay(parsed.timestamp),
-      startedAt: parsed.timestamp ?? null,
-      inputTokens: null,
-      outputTokens: null,
-      cacheReadTokens: null,
+      day: toDay(sessionMeta.timestamp),
+      startedAt: sessionMeta.timestamp ?? null,
+      inputTokens: lastTotal ? newInput : null,
+      outputTokens: lastTotal ? totalOutput : null,
+      cacheReadTokens: lastTotal ? cached : null,
       cacheWriteTokens: null,
       exactCostUsd: null,
-      sourceSessionHash: hashSessionId(parsed.payload?.id ?? filePath),
-    })
-  }
-
-  return rows
+      sourceSessionHash: hashSessionId(sessionMeta.payload?.id ?? filePath),
+    },
+  ]
 }
 
 function readCodexSqlite(filePath: string): UsageSlice[] {
@@ -115,7 +157,6 @@ function readCodexSqlite(filePath: string): UsageSlice[] {
         const provider = row.model_provider
         const rawModel = row.model
         const createdAt = row.created_at
-        const tokensUsed = row.tokens_used
         if (typeof provider !== "string") continue
         const model = typeof rawModel === "string" && rawModel.length > 0 ? rawModel : inferDefaultModel(provider)
         if (!model) continue
@@ -126,7 +167,7 @@ function readCodexSqlite(filePath: string): UsageSlice[] {
           model: normalized.model,
           day: toDay(createdAt ?? undefined),
           startedAt: typeof createdAt === "number" ? new Date(toTimestampMs(createdAt)).toISOString() : null,
-          inputTokens: typeof tokensUsed === "number" ? tokensUsed : null,
+          inputTokens: null,
           outputTokens: null,
           cacheReadTokens: null,
           cacheWriteTokens: null,

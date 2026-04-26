@@ -14,6 +14,10 @@ export type SyncBatchRow = {
   costUsd: number
   pricingMode: PricingMode
   pricingSnapshotKey: string | null
+  inputTokens: number | null
+  outputTokens: number | null
+  cacheReadTokens: number | null
+  cacheWriteTokens: number | null
 }
 
 export type SyncPricingSnapshot = {
@@ -26,10 +30,17 @@ export type SyncPricingSnapshot = {
   cacheWriteCost: number | null
 }
 
+export type SyncHourBucket = {
+  dayOfWeek: number
+  hour: number
+  costUsd: number
+}
+
 export type SyncBatch = {
   generatedAt: string
   pricingSnapshots: SyncPricingSnapshot[]
   rows: SyncBatchRow[]
+  hourBuckets: SyncHourBucket[]
 }
 
 function hashSnapshot(provider: string, model: string, snapshot: PricingSnapshot): string {
@@ -50,6 +61,7 @@ function hashSnapshot(provider: string, model: string, snapshot: PricingSnapshot
 export async function buildSyncBatch(rows: UsageSlice[], pricingLookup: SyncPricingLookup): Promise<SyncBatch> {
   const deduped = new Map<string, SyncBatchRow>()
   const snapshots = new Map<string, SyncPricingSnapshot>()
+  const hourBuckets = new Map<string, SyncHourBucket>()
 
   for (const row of rows) {
     const normalized = normalizeModelKey(row.provider, row.model)
@@ -86,6 +98,16 @@ export async function buildSyncBatch(rows: UsageSlice[], pricingLookup: SyncPric
     if (deduped.has(dedupeKey)) {
       const existing = deduped.get(dedupeKey)!
       existing.costUsd += pricing.costUsd
+      if (row.inputTokens != null)
+        existing.inputTokens = (existing.inputTokens ?? 0) + row.inputTokens
+      if (row.outputTokens != null)
+        existing.outputTokens = (existing.outputTokens ?? 0) + row.outputTokens
+      if (row.cacheReadTokens != null)
+        existing.cacheReadTokens =
+          (existing.cacheReadTokens ?? 0) + row.cacheReadTokens
+      if (row.cacheWriteTokens != null)
+        existing.cacheWriteTokens =
+          (existing.cacheWriteTokens ?? 0) + row.cacheWriteTokens
     } else {
       deduped.set(dedupeKey, {
         dedupeKey,
@@ -96,7 +118,24 @@ export async function buildSyncBatch(rows: UsageSlice[], pricingLookup: SyncPric
         costUsd: pricing.costUsd,
         pricingMode: pricing.pricingMode,
         pricingSnapshotKey,
+        inputTokens: row.inputTokens ?? null,
+        outputTokens: row.outputTokens ?? null,
+        cacheReadTokens: row.cacheReadTokens ?? null,
+        cacheWriteTokens: row.cacheWriteTokens ?? null,
       })
+    }
+
+    if (row.startedAt) {
+      const ts = new Date(row.startedAt)
+      if (!Number.isNaN(ts.getTime())) {
+        const dow = (ts.getUTCDay() + 6) % 7
+        const hour = ts.getUTCHours()
+        const k = `${dow}:${hour}`
+        const cur =
+          hourBuckets.get(k) ?? { dayOfWeek: dow, hour, costUsd: 0 }
+        cur.costUsd += pricing.costUsd
+        hourBuckets.set(k, cur)
+      }
     }
   }
 
@@ -104,5 +143,6 @@ export async function buildSyncBatch(rows: UsageSlice[], pricingLookup: SyncPric
     generatedAt: new Date().toISOString(),
     pricingSnapshots: [...snapshots.values()],
     rows: [...deduped.values()],
+    hourBuckets: [...hourBuckets.values()],
   }
 }

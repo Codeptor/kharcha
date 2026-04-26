@@ -10,12 +10,19 @@ import {
 } from "react"
 import type { DashboardData } from "@/lib/dashboard/chart-shape"
 import { computeStreaks, computeModelStats } from "@/lib/dashboard/stats"
+import {
+  type Currency,
+  formatCompact,
+  formatFull,
+} from "@/lib/dashboard/currency"
 import { ProviderIcon } from "./provider-icon"
 import { Heatmap } from "./heatmap"
+import { HourHeatmap } from "./hour-heatmap"
 import { StatsPanel } from "./stats-panel"
 import { Volume2, VolumeOff } from "lucide-react"
 import {
   tickSound,
+  cellSound,
   selectSound,
   deselectSound,
   enterSound,
@@ -32,13 +39,20 @@ import {
 type Range = "7d" | "30d" | "all"
 type View = "bars" | "heatmap" | "stats"
 
-function fmt(v: number) {
-  if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`
-  return `$${v.toFixed(2)}`
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}b`
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return n.toString()
 }
 
-function fmtFull(v: number) {
-  return `$${v.toFixed(2)}`
+function tokenTooltip(t: {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+}): string {
+  return `in ${fmtTokens(t.input)} · out ${fmtTokens(t.output)} · cache-read ${fmtTokens(t.cacheRead)} · cache-write ${fmtTokens(t.cacheWrite)}`
 }
 
 function fmtDate(iso: string) {
@@ -172,6 +186,16 @@ export function Dashboard({ data }: { data: DashboardData }) {
   const [locked, setLocked] = useState<number | null>(null)
   const [muted, setMuted] = useState(false)
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set())
+  const [currency, setCurrency] = useState<Currency>("USD")
+  useEffect(() => {
+    const stored = localStorage.getItem("currency")
+    if (stored === "USD" || stored === "INR") setCurrency(stored)
+  }, [])
+  useEffect(() => {
+    localStorage.setItem("currency", currency)
+  }, [currency])
+  const fmt = useCallback((v: number) => formatCompact(v, currency), [currency])
+  const fmtFull = useCallback((v: number) => formatFull(v, currency), [currency])
   const barsRef = useRef<HTMLDivElement>(null)
   const { resolvedTheme, setTheme } = useTheme()
   const sfx = useCallback(
@@ -204,6 +228,36 @@ export function Dashboard({ data }: { data: DashboardData }) {
   )
   const streaks = useMemo(() => computeStreaks(filteredDays), [filteredDays])
   const modelStats = useMemo(() => computeModelStats(rangedDays), [rangedDays])
+
+  const prevRangeTotal = useMemo(() => {
+    if (range === "all") return null
+    const n = range === "7d" ? 7 : 30
+    const today = new Date()
+    today.setUTCHours(0, 0, 0, 0)
+    const startCur = new Date(today)
+    startCur.setUTCDate(startCur.getUTCDate() - (n - 1))
+    const endPrev = new Date(startCur)
+    endPrev.setUTCDate(endPrev.getUTCDate() - 1)
+    const startPrev = new Date(endPrev)
+    startPrev.setUTCDate(startPrev.getUTCDate() - (n - 1))
+    const startStr = startPrev.toISOString().slice(0, 10)
+    const endStr = endPrev.toISOString().slice(0, 10)
+    let total = 0
+    for (const d of allDays) {
+      if (d.day < startStr || d.day > endStr) continue
+      if (selectedModels.size === 0) total += d.total
+      else
+        for (const seg of d.segments)
+          if (selectedModels.has(seg.key)) total += seg.costUsd
+    }
+    return total
+  }, [allDays, range, selectedModels])
+
+  const popDelta = useMemo(() => {
+    if (prevRangeTotal === null) return null
+    if (prevRangeTotal === 0) return rangeTotal > 0 ? Infinity : 0
+    return (rangeTotal - prevRangeTotal) / prevRangeTotal
+  }, [prevRangeTotal, rangeTotal])
 
   const toggleModel = useCallback((key: string) => {
     setSelectedModels((prev) => {
@@ -420,7 +474,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
     >
       {/* Header */}
       <header className="fixed inset-x-0 top-0 z-50 animate-in px-4 pt-4 pb-2 duration-500 fill-mode-both fade-in slide-in-from-top-2 sm:px-6 sm:pt-[30px] sm:pb-3">
-        <div className="mx-auto flex max-w-[1178px] items-center justify-between">
+        <div className="mx-auto flex max-w-[1178px] items-center justify-between gap-4">
           {/* Range + view pills */}
           <div className="flex items-center gap-3 sm:gap-4">
             <div className="flex gap-1.5 sm:gap-2">
@@ -470,14 +524,43 @@ export function Dashboard({ data }: { data: DashboardData }) {
             </div>
           </div>
 
-          {/* Center: sync status */}
-          {data.lastSynced && (
-            <span className="hidden font-mono text-[10px] text-stone-400 sm:inline dark:text-stone-600">
-              synced {syncedLabel ?? " "}
-            </span>
-          )}
+          {/* Meta line (center) */}
+          <div className="hidden flex-1 items-center justify-center gap-3 font-mono text-[10px] text-stone-400 md:flex md:gap-4 md:text-[11px] dark:text-stone-600">
+            <span>{filteredDays.filter((d) => d.total > 0).length} days</span>
+            <span className="text-stone-300 dark:text-stone-700">·</span>
+            <span>{uniqueSources} sources</span>
+            <span className="text-stone-300 dark:text-stone-700">·</span>
+            <span>{uniqueModels} models</span>
+            {data.tokenTotals && (
+              <>
+                <span className="text-stone-300 dark:text-stone-700">·</span>
+                <span title={tokenTooltip(data.tokenTotals)}>
+                  {fmtTokens(
+                    data.tokenTotals.input + data.tokenTotals.output,
+                  )}{" "}
+                  tokens
+                </span>
+              </>
+            )}
+          </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {data.lastSynced && (
+              <span className="hidden font-mono text-[10px] text-stone-400 sm:inline dark:text-stone-600">
+                synced {syncedLabel ?? " "}
+              </span>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleVibrate()
+                setCurrency((c) => (c === "USD" ? "INR" : "USD"))
+              }}
+              className="font-mono text-[10px] text-stone-400 transition-colors hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
+              title={`switch to ${currency === "USD" ? "INR" : "USD"}`}
+            >
+              {currency === "USD" ? "$" : "₹"}
+            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -500,10 +583,26 @@ export function Dashboard({ data }: { data: DashboardData }) {
             </button>
             <div className="text-right">
               <div
-                className="text-sm tracking-tight text-stone-800 dark:text-stone-100"
+                className="flex items-baseline justify-end gap-1.5 text-sm tracking-tight text-stone-800 dark:text-stone-100"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 {fmtFull(rangeTotal)}
+                {popDelta !== null && (
+                  <span
+                    className={`font-mono text-[9px] tracking-tight ${
+                      popDelta > 0
+                        ? "text-amber-700 dark:text-amber-400"
+                        : popDelta < 0
+                          ? "text-emerald-700 dark:text-emerald-400"
+                          : "text-stone-400 dark:text-stone-600"
+                    }`}
+                    title={`vs previous ${range}`}
+                  >
+                    {popDelta === Infinity
+                      ? "new"
+                      : `${popDelta > 0 ? "↑" : popDelta < 0 ? "↓" : "·"} ${Math.abs(popDelta * 100).toFixed(0)}%`}
+                  </span>
+                )}
               </div>
               {costPerHour > 0 && (
                 <div className="font-mono text-[9px] text-stone-400 dark:text-stone-600">
@@ -516,10 +615,10 @@ export function Dashboard({ data }: { data: DashboardData }) {
       </header>
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col items-center justify-center px-4 pt-16 pb-20 sm:px-8 sm:pt-0 sm:pb-0 lg:px-24">
-        {/* Meta line */}
+      <div className="flex flex-1 flex-col items-center justify-center px-4 pt-12 pb-20 sm:px-8 sm:pt-0 sm:pb-0 lg:px-24">
+        {/* Meta line — mobile fallback (header has it on md+) */}
         <div
-          className="mb-6 flex animate-in gap-3 font-mono text-[10px] text-stone-400 duration-700 fill-mode-both fade-in sm:mb-10 sm:gap-4 sm:text-[11px] dark:text-stone-600"
+          className="mb-3 flex animate-in gap-3 font-mono text-[10px] text-stone-400 duration-700 fill-mode-both fade-in sm:mb-5 sm:gap-4 sm:text-[11px] md:hidden dark:text-stone-600"
           style={{ animationDelay: "200ms" }}
         >
           <span>{filteredDays.filter((d) => d.total > 0).length} days</span>
@@ -527,29 +626,68 @@ export function Dashboard({ data }: { data: DashboardData }) {
           <span>{uniqueSources} sources</span>
           <span className="text-stone-300 dark:text-stone-700">·</span>
           <span>{uniqueModels} models</span>
+          {data.tokenTotals && (
+            <>
+              <span className="text-stone-300 dark:text-stone-700">·</span>
+              <span title={tokenTooltip(data.tokenTotals)}>
+                {fmtTokens(
+                  data.tokenTotals.input + data.tokenTotals.output,
+                )}{" "}
+                tokens
+              </span>
+            </>
+          )}
         </div>
 
         {/* Chart area */}
         {view === "stats" ? (
-          <div className="w-full max-w-[700px]">
-            <StatsPanel
-              streaks={streaks}
-              modelStats={modelStats}
-              onSelectModel={(k) => {
-                sfx(selectSound)
-                selectVibrate()
-                toggleModel(k)
-              }}
-              selectedModels={selectedModels}
-            />
+          <div
+            key="view-stats"
+            className="grid w-full max-w-[1200px] grid-cols-1 gap-10 animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both lg:grid-cols-2 lg:gap-14"
+          >
+            <div className="flex flex-col gap-6 sm:gap-8">
+              <StatsPanel
+                streaks={streaks}
+                modelStats={modelStats}
+                onSelectModel={(k) => {
+                  sfx(selectSound)
+                  selectVibrate()
+                  toggleModel(k)
+                }}
+                selectedModels={selectedModels}
+                fmt={fmt}
+              />
+            </div>
+            <div className="flex flex-col gap-6 sm:gap-8">
+              {data.hourBuckets && data.hourBuckets.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-baseline justify-between font-mono text-[10px] text-stone-400 dark:text-stone-600">
+                    <span>activity by hour</span>
+                    <span className="text-[9px]">all-time · UTC</span>
+                  </div>
+                  <HourHeatmap buckets={data.hourBuckets} fmt={fmt} />
+                </div>
+              )}
+            </div>
           </div>
         ) : view === "heatmap" ? (
-          <div className="w-full max-w-[920px] overflow-x-auto">
+          <div
+            key="view-heatmap"
+            className="w-full max-w-[920px] overflow-x-auto animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both"
+          >
             <Heatmap
               days={filteredDays}
               activeIndex={activeIndex}
               onHover={(idx) => {
                 if (locked !== null) return
+                if (idx !== null && idx !== hovered) {
+                  const day = filteredDays[idx]
+                  sfx(
+                    cellSound,
+                    day ? Math.min(day.total / maxCost, 1) : 0,
+                  )
+                  tickVibrate()
+                }
                 setHovered(idx)
               }}
               onClick={(idx) => {
@@ -568,7 +706,8 @@ export function Dashboard({ data }: { data: DashboardData }) {
           </div>
         ) : (
           <div
-            className="relative cursor-default touch-none"
+            key="view-bars"
+            className="relative cursor-default touch-none animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both"
             onMouseEnter={() => sfx(enterSound)}
             onMouseMove={handleChartMouseMove}
             onClick={handleChartClick}
@@ -655,7 +794,14 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
         {/* Active day breakdown */}
         {view !== "stats" && (
-          <div className="mt-8 h-[140px] sm:mt-10 sm:h-[180px]">
+          <div className="relative mt-8 h-[140px] sm:mt-10 sm:h-[180px]">
+            {sorted.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="font-mono text-[10px] whitespace-nowrap text-stone-400/80 dark:text-stone-600/80">
+                  hover or tap a {view === "heatmap" ? "cell" : "bar"} for details
+                </span>
+              </div>
+            )}
             <div
               className="flex flex-col gap-1 transition-opacity duration-200 sm:gap-1.5"
               style={{ opacity: sorted.length > 0 ? 1 : 0 }}

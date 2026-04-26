@@ -66,8 +66,13 @@ describe("parseSyncBatch", () => {
           costUsd: 1.5,
           pricingMode: "exact",
           pricingSnapshotKey: null,
+          inputTokens: null,
+          outputTokens: null,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
         },
       ],
+      hourBuckets: [],
     })
   })
 })

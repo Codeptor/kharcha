@@ -1,7 +1,7 @@
 import { inArray, sql } from "drizzle-orm"
 
 import { db } from "./client"
-import { dailyRollups, pricingSnapshots, usageRows } from "./schema"
+import { dailyRollups, hourOfDayBuckets, pricingSnapshots, usageRows } from "./schema"
 
 type PricingMode = "exact" | "estimated" | "unpriced"
 
@@ -38,12 +38,23 @@ type SyncBatchRow = {
   costUsd: number
   pricingMode: PricingMode
   pricingSnapshotKey: string | null
+  inputTokens: number | null
+  outputTokens: number | null
+  cacheReadTokens: number | null
+  cacheWriteTokens: number | null
+}
+
+type SyncHourBucket = {
+  dayOfWeek: number
+  hour: number
+  costUsd: number
 }
 
 type SyncBatch = {
   generatedAt: string
   pricingSnapshots: SyncPricingSnapshot[]
   rows: SyncBatchRow[]
+  hourBuckets: SyncHourBucket[]
 }
 
 type IngestResult = {
@@ -52,6 +63,7 @@ type IngestResult = {
   pricingSnapshotsInserted: number
   usageRowsInserted: number
   dailyRollupsInserted: number
+  hourBucketsInserted: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -118,6 +130,11 @@ function parseBatchRow(value: unknown): SyncBatchRow | null {
     return null
   }
 
+  const tok = (k: string): number | null => {
+    const v = value[k]
+    return v === undefined || v === null ? null : isNumber(v) ? v : null
+  }
+
   return {
     dedupeKey: value.dedupeKey,
     source: value.source,
@@ -127,6 +144,26 @@ function parseBatchRow(value: unknown): SyncBatchRow | null {
     costUsd: value.costUsd,
     pricingMode: value.pricingMode,
     pricingSnapshotKey: value.pricingSnapshotKey,
+    inputTokens: tok("inputTokens"),
+    outputTokens: tok("outputTokens"),
+    cacheReadTokens: tok("cacheReadTokens"),
+    cacheWriteTokens: tok("cacheWriteTokens"),
+  }
+}
+
+function parseHourBucket(value: unknown): SyncHourBucket | null {
+  if (!isRecord(value)) return null
+  if (
+    !isNumber(value.dayOfWeek) ||
+    !isNumber(value.hour) ||
+    !isNumber(value.costUsd)
+  ) {
+    return null
+  }
+  return {
+    dayOfWeek: value.dayOfWeek,
+    hour: value.hour,
+    costUsd: value.costUsd,
   }
 }
 
@@ -137,8 +174,14 @@ export function parseSyncBatch(value: unknown): SyncBatch {
 
   const pricingSnapshots = value.pricingSnapshots.map(parsePricingSnapshot)
   const rows = value.rows.map(parseBatchRow)
+  const hourBucketsRaw = Array.isArray(value.hourBuckets) ? value.hourBuckets : []
+  const hourBuckets = hourBucketsRaw.map(parseHourBucket)
 
-  if (pricingSnapshots.some((snapshot) => snapshot === null) || rows.some((row) => row === null)) {
+  if (
+    pricingSnapshots.some((snapshot) => snapshot === null) ||
+    rows.some((row) => row === null) ||
+    hourBuckets.some((b) => b === null)
+  ) {
     throw new Error("Invalid sync batch")
   }
 
@@ -146,6 +189,7 @@ export function parseSyncBatch(value: unknown): SyncBatch {
     generatedAt: value.generatedAt,
     pricingSnapshots: pricingSnapshots as SyncPricingSnapshot[],
     rows: rows as SyncBatchRow[],
+    hourBuckets: hourBuckets as SyncHourBucket[],
   }
 }
 
@@ -191,6 +235,7 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
       pricingSnapshotsInserted: 0,
       usageRowsInserted: 0,
       dailyRollupsInserted: 0,
+      hourBucketsInserted: 0,
     }
   }
 
@@ -225,6 +270,10 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
             costUsd: sql`excluded.cost_usd`,
             pricingMode: sql`excluded.pricing_mode`,
             pricingSnapshotKey: sql`excluded.pricing_snapshot_key`,
+            inputTokens: sql`excluded.input_tokens`,
+            outputTokens: sql`excluded.output_tokens`,
+            cacheReadTokens: sql`excluded.cache_read_tokens`,
+            cacheWriteTokens: sql`excluded.cache_write_tokens`,
             createdAt: sql`now()`,
           },
         })
@@ -263,12 +312,24 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
         .onConflictDoNothing()
     }
 
+    await tx.delete(hourOfDayBuckets)
+    if (batch.hourBuckets.length > 0) {
+      await tx.insert(hourOfDayBuckets).values(
+        batch.hourBuckets.map((b) => ({
+          dayOfWeek: b.dayOfWeek,
+          hour: b.hour,
+          costUsd: toDbNumber(b.costUsd),
+        })),
+      )
+    }
+
     return {
       generatedAt: batch.generatedAt,
       affectedDays,
       pricingSnapshotsInserted: batch.pricingSnapshots.length,
       usageRowsInserted: batch.rows.length,
       dailyRollupsInserted: rebuiltRollups.length,
+      hourBucketsInserted: batch.hourBuckets.length,
     }
   })
 }
