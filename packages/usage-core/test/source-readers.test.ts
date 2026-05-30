@@ -51,9 +51,14 @@ describe("source readers", () => {
   it("reads Codex rollout metadata", async () => {
     const rows = await readCodexUsage("packages/usage-core/test/fixtures/codex-rollout.jsonl")
 
-    expect(rows).toHaveLength(2)
+    // One rollout file = one session. Tokens come from the final cumulative token_count,
+    // with cached input removed from input and reasoning folded into output.
+    expect(rows).toHaveLength(1)
     expect(rows[0]?.provider).toBe("openai")
     expect(rows[0]?.model).toBe("gpt-5.4")
+    expect(rows[0]?.inputTokens).toBe(3000)
+    expect(rows[0]?.outputTokens).toBe(1300)
+    expect(rows[0]?.cacheReadTokens).toBe(1000)
   })
 
   it("reads Codex sqlite rows returned as objects", async () => {
