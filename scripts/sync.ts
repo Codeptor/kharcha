@@ -1,6 +1,6 @@
-import { access } from "node:fs/promises"
+import { access, readdir } from "node:fs/promises"
 import { constants as fsConstants } from "node:fs"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import {
   buildSyncBatch,
   fetchModelsDevCatalog,
@@ -10,6 +10,7 @@ import {
   readKimiUsage,
   readOpenCodeUsage,
   toPricingSnapshot,
+  type UsageSlice,
 } from "../packages/usage-core/src/index.ts"
 
 const dryRun = process.argv.includes("--dry-run")
@@ -21,6 +22,27 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+// A native Windows Claude install is visible from WSL under /mnt/c/Users/<user>/.claude,
+// separate from the WSL home install. Enumerate every Windows profile that has a Claude
+// history (set CLAUDE_CODE_WINDOWS_HOME to pin a single .claude dir instead). Returns
+// nothing off-WSL, where /mnt/c is absent — so the same script is a no-op on Linux/macOS.
+async function resolveWindowsClaudeDirs(): Promise<string[]> {
+  const override = process.env.CLAUDE_CODE_WINDOWS_HOME
+  if (override) return [override]
+
+  const usersRoot = "/mnt/c/Users"
+  if (!(await pathExists(usersRoot))) return []
+
+  const entries = await readdir(usersRoot, { withFileTypes: true })
+  const dirs: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const claudeDir = join(usersRoot, entry.name, ".claude")
+    if (await pathExists(join(claudeDir, "projects"))) dirs.push(claudeDir)
+  }
+  return dirs
 }
 
 async function loadPricingLookup() {
@@ -153,6 +175,27 @@ async function loadUsageRows() {
     const backfill = await readClaudeStatsCache(statsCachePath, rows)
     console.log(`  Claude stats cache: ${backfill.length} backfill rows`)
     rows.push(...backfill)
+  }
+
+  // Native Windows Claude installs (when syncing from WSL). Session IDs are globally
+  // unique, so Windows JSONL rows never collide with WSL ones; the stats-cache backfill
+  // is namespaced per Windows user and diffed against that machine's JSONL only.
+  for (const claudeDir of await resolveWindowsClaudeDirs()) {
+    const user = basename(dirname(claudeDir))
+    const projectsPath = join(claudeDir, "projects")
+    let winRows: UsageSlice[] = []
+    if (await pathExists(projectsPath)) {
+      winRows = await readClaudeCodeUsage(projectsPath)
+      console.log(`  Claude Code (Windows · ${user}): ${winRows.length} rows`)
+      rows.push(...winRows)
+    }
+
+    const winCachePath = join(claudeDir, "stats-cache.json")
+    if (await pathExists(winCachePath)) {
+      const backfill = await readClaudeStatsCache(winCachePath, winRows, `windows-${user}`)
+      console.log(`  Claude stats cache (Windows · ${user}): ${backfill.length} backfill rows`)
+      rows.push(...backfill)
+    }
   }
 
   return rows

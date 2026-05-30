@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it } from "bun:test"
 import { readClaudeCodeUsage } from "../src/sources/claude-code"
+import { readClaudeStatsCache } from "../src/sources/claude-code-cache"
 import { readCodexUsage } from "../src/sources/codex"
 import { readOpenCodeUsage } from "../src/sources/opencode"
 
@@ -155,5 +156,42 @@ describe("source readers", () => {
     expect(rows[0]?.provider).toBe("anthropic")
     expect(rows[0]?.model).toBe("claude-opus-4-6")
     expect(rows[0]?.exactCostUsd).toBe(0.42)
+  })
+
+  it("namespaces stats-cache backfill so WSL and Windows rows never collide", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "claude-stats-cache-"))
+    const cachePath = join(tempDir, "stats-cache.json")
+
+    try {
+      await Bun.write(
+        cachePath,
+        JSON.stringify({
+          dailyModelTokens: [
+            { date: "2025-10-08", tokensByModel: { "claude-sonnet-4-5-20250929": 1128 } },
+          ],
+          modelUsage: {
+            "claude-sonnet-4-5-20250929": {
+              inputTokens: 90,
+              outputTokens: 1038,
+              cacheReadInputTokens: 270951,
+              cacheCreationInputTokens: 87116,
+            },
+          },
+        }),
+      )
+
+      const wsl = await readClaudeStatsCache(cachePath, [])
+      const windows = await readClaudeStatsCache(cachePath, [], "windows-bhanu")
+
+      expect(wsl).toHaveLength(1)
+      expect(windows).toHaveLength(1)
+      // Identical day/model/tokens, but the namespace forces distinct session hashes
+      // (and therefore distinct dedupe keys downstream) so the two machines sum, never merge.
+      expect(wsl[0]?.inputTokens).toBe(90)
+      expect(windows[0]?.inputTokens).toBe(90)
+      expect(wsl[0]?.sourceSessionHash).not.toBe(windows[0]?.sourceSessionHash)
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
   })
 })

@@ -46,7 +46,11 @@ function totalsFromJsonl(rows: UsageSlice[]): Map<string, TokenBreakdown> {
   return map
 }
 
-export async function readClaudeStatsCache(cachePath: string, priorRows: UsageSlice[]): Promise<UsageSlice[]> {
+export async function readClaudeStatsCache(
+  cachePath: string,
+  priorRows: UsageSlice[],
+  namespace?: string,
+): Promise<UsageSlice[]> {
   const content = await readFile(cachePath, "utf8")
   const cache = JSON.parse(content) as StatsCache
 
@@ -97,8 +101,12 @@ export async function readClaudeStatsCache(cachePath: string, priorRows: UsageSl
 
       if (deficitInput + deficitOutput + deficitCacheRead + deficitCacheWrite === 0) continue
 
+      // Keep the un-namespaced hash byte-identical to preserve existing dedupe keys;
+      // a namespace (e.g. per Windows user) only prefixes so backfills from separate
+      // machines never collapse onto the same row.
+      const scope = namespace ? `stats-cache:${namespace}` : "stats-cache"
       const sessionHash = createHash("sha256")
-        .update(`stats-cache:${normalized.provider}:${normalized.model}:${entry.date}`)
+        .update(`${scope}:${normalized.provider}:${normalized.model}:${entry.date}`)
         .digest("hex")
 
       rows.push({
