@@ -195,8 +195,12 @@ export function Dashboard({ data }: { data: DashboardData }) {
     localStorage.setItem("currency", currency)
   }, [currency])
   const fmt = useCallback((v: number) => formatCompact(v, currency), [currency])
-  const fmtFull = useCallback((v: number) => formatFull(v, currency), [currency])
+  const fmtFull = useCallback(
+    (v: number) => formatFull(v, currency),
+    [currency]
+  )
   const barsRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const { resolvedTheme, setTheme } = useTheme()
   const sfx = useCallback(
     <T extends unknown[]>(fn: (...args: T) => void, ...args: T) => {
@@ -435,6 +439,31 @@ export function Dashboard({ data }: { data: DashboardData }) {
     const id = setInterval(update, 60_000)
     return () => clearInterval(id)
   }, [data.lastSynced])
+
+  // Translate vertical wheel into horizontal scroll across the bar chart, but only
+  // while it actually overflows — otherwise let the page scroll normally. Attached
+  // manually so preventDefault works (React's onWheel is passive).
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return
+      const delta =
+        Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (delta === 0) return
+      el.scrollLeft += delta
+      e.preventDefault()
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+  }, [view])
+
+  // Open on the most recent days (right edge) whenever the chart re-populates.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollLeft = el.scrollWidth
+  }, [view, range, filteredDays.length])
+
   const barGap = isMobile ? 4 : 10
   const chartHeight = isMobile ? MOBILE_MAX_HEIGHT : MAX_HEIGHT
 
@@ -459,7 +488,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
   return (
     <div
-      className="relative flex min-h-svh flex-col bg-[#ede8e1] dark:bg-stone-950"
+      className="relative flex min-h-svh flex-col overflow-x-clip bg-[#ede8e1] dark:bg-stone-950"
       onKeyDown={handleKeyDown}
       onPointerDown={() => {
         sfx(bootSound)
@@ -534,9 +563,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               <>
                 <span className="text-stone-300 dark:text-stone-700">·</span>
                 <span title={tokenTooltip(data.tokenTotals)}>
-                  {fmtTokens(
-                    data.tokenTotals.input + data.tokenTotals.output,
-                  )}{" "}
+                  {fmtTokens(data.tokenTotals.input + data.tokenTotals.output)}{" "}
                   tokens
                 </span>
               </>
@@ -629,9 +656,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
             <>
               <span className="text-stone-300 dark:text-stone-700">·</span>
               <span title={tokenTooltip(data.tokenTotals)}>
-                {fmtTokens(
-                  data.tokenTotals.input + data.tokenTotals.output,
-                )}{" "}
+                {fmtTokens(data.tokenTotals.input + data.tokenTotals.output)}{" "}
                 tokens
               </span>
             </>
@@ -642,7 +667,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
         {view === "stats" ? (
           <div
             key="view-stats"
-            className="grid w-full max-w-[1200px] grid-cols-1 gap-10 animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both lg:grid-cols-2 lg:gap-14"
+            className="grid w-full max-w-[1200px] animate-in grid-cols-1 gap-10 duration-300 fill-mode-both fade-in slide-in-from-bottom-1 lg:grid-cols-2 lg:gap-14"
           >
             <div className="flex flex-col gap-6 sm:gap-8">
               <StatsPanel
@@ -672,7 +697,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
         ) : view === "heatmap" ? (
           <div
             key="view-heatmap"
-            className="w-full max-w-[920px] overflow-x-auto animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both"
+            className="w-full max-w-[920px] animate-in overflow-x-auto duration-300 fill-mode-both fade-in slide-in-from-bottom-1"
           >
             <Heatmap
               days={filteredDays}
@@ -681,10 +706,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
                 if (locked !== null) return
                 if (idx !== null && idx !== hovered) {
                   const day = filteredDays[idx]
-                  sfx(
-                    cellSound,
-                    day ? Math.min(day.total / maxCost, 1) : 0,
-                  )
+                  sfx(cellSound, day ? Math.min(day.total / maxCost, 1) : 0)
                   tickVibrate()
                 }
                 setHovered(idx)
@@ -706,87 +728,92 @@ export function Dashboard({ data }: { data: DashboardData }) {
         ) : (
           <div
             key="view-bars"
-            className="relative cursor-default touch-none animate-in fade-in slide-in-from-bottom-1 duration-300 fill-mode-both"
-            onMouseEnter={() => sfx(enterSound)}
-            onMouseMove={handleChartMouseMove}
-            onClick={handleChartClick}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onMouseLeave={() => {
-              if (locked === null) {
-                sfx(exitSound)
-                setHovered(null)
-              }
-            }}
+            ref={scrollRef}
+            className="no-scrollbar w-full max-w-[1178px] overflow-x-auto px-3 pt-6 pb-8"
           >
             <div
-              ref={barsRef}
-              className="relative mx-auto flex w-fit animate-in items-end duration-700 fill-mode-both fade-in slide-in-from-bottom-4"
-              style={{ gap: barGap, animationDelay: "400ms" }}
+              className="relative mx-auto w-fit animate-in cursor-default touch-none duration-300 fill-mode-both fade-in slide-in-from-bottom-1"
+              onMouseEnter={() => sfx(enterSound)}
+              onMouseMove={handleChartMouseMove}
+              onClick={handleChartClick}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onMouseLeave={() => {
+                if (locked === null) {
+                  sfx(exitSound)
+                  setHovered(null)
+                }
+              }}
             >
-              {filteredDays.map((day, i) => {
-                const dimmed =
-                  (hovered !== null || locked !== null) && activeIndex !== i
-                const isActive = i === activeIndex
-                const isPeak = i === peakIndex && day.total > 0
-                const segments = [...day.segments].sort(
-                  (a, b) => b.costUsd - a.costUsd
-                )
+              <div
+                ref={barsRef}
+                className="relative mx-auto flex w-fit animate-in items-end duration-700 fill-mode-both fade-in slide-in-from-bottom-4"
+                style={{ gap: barGap, animationDelay: "400ms" }}
+              >
+                {filteredDays.map((day, i) => {
+                  const dimmed =
+                    (hovered !== null || locked !== null) && activeIndex !== i
+                  const isActive = i === activeIndex
+                  const isPeak = i === peakIndex && day.total > 0
+                  const segments = [...day.segments].sort(
+                    (a, b) => b.costUsd - a.costUsd
+                  )
 
-                return (
-                  <div
-                    key={day.day}
-                    className="animate-grow-up relative flex flex-col gap-0.5 select-none"
-                    style={{ width: 1, animationDelay: `${450 + i * 8}ms` }}
-                  >
-                    {day.total <= 0 ? (
-                      <div
-                        className={`h-1 w-full transition-colors duration-150 ${
-                          dimmed
-                            ? "bg-stone-300 dark:bg-stone-800"
-                            : "bg-stone-400 dark:bg-stone-600"
-                        }`}
-                      />
-                    ) : (
-                      segments.map((seg) => (
+                  return (
+                    <div
+                      key={day.day}
+                      className="animate-grow-up relative flex flex-col gap-0.5 select-none"
+                      style={{ width: 1, animationDelay: `${450 + i * 8}ms` }}
+                    >
+                      {day.total <= 0 ? (
                         <div
-                          key={seg.key}
-                          className={`w-full transition-colors duration-150 ${
+                          className={`h-1 w-full transition-colors duration-150 ${
                             dimmed
-                              ? isPeak
-                                ? "bg-red-300 dark:bg-red-900"
-                                : "bg-stone-400 dark:bg-stone-700"
-                              : isPeak
-                                ? "bg-red-500 dark:bg-red-400"
-                                : "bg-stone-900 dark:bg-stone-100"
+                              ? "bg-stone-300 dark:bg-stone-800"
+                              : "bg-stone-400 dark:bg-stone-600"
                           }`}
-                          style={{
-                            height: Math.max(
-                              1,
-                              (seg.costUsd / maxCost) * chartHeight
-                            ),
-                          }}
                         />
-                      ))
-                    )}
+                      ) : (
+                        segments.map((seg) => (
+                          <div
+                            key={seg.key}
+                            className={`w-full transition-colors duration-150 ${
+                              dimmed
+                                ? isPeak
+                                  ? "bg-red-300 dark:bg-red-900"
+                                  : "bg-stone-400 dark:bg-stone-700"
+                                : isPeak
+                                  ? "bg-red-500 dark:bg-red-400"
+                                  : "bg-stone-900 dark:bg-stone-100"
+                            }`}
+                            style={{
+                              height: Math.max(
+                                1,
+                                (seg.costUsd / maxCost) * chartHeight
+                              ),
+                            }}
+                          />
+                        ))
+                      )}
 
-                    {isActive && (
-                      <>
-                        <div
-                          className="pointer-events-none absolute bottom-0 left-1/2 w-[2px] -translate-x-1/2 bg-amber-500/30 dark:bg-amber-400/25"
-                          style={{ height: chartHeight + 20 }}
-                        />
-                        <div
-                          className="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 text-center text-[11px] tracking-tight whitespace-nowrap text-stone-500 select-none sm:mt-3 sm:text-[13px] dark:text-stone-400"
-                          style={{ fontFamily: "var(--font-display)" }}
-                        >
-                          {fmtDate(day.day)}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )
-              })}
+                      {isActive && (
+                        <>
+                          <div
+                            className="pointer-events-none absolute bottom-0 left-1/2 w-[2px] -translate-x-1/2 bg-amber-500/30 dark:bg-amber-400/25"
+                            style={{ height: chartHeight + 20 }}
+                          />
+                          <div
+                            className="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 text-center text-[11px] tracking-tight whitespace-nowrap text-stone-500 select-none sm:mt-3 sm:text-[13px] dark:text-stone-400"
+                            style={{ fontFamily: "var(--font-display)" }}
+                          >
+                            {fmtDate(day.day)}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -797,7 +824,8 @@ export function Dashboard({ data }: { data: DashboardData }) {
             {sorted.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="font-mono text-[10px] whitespace-nowrap text-stone-400/80 dark:text-stone-600/80">
-                  hover or tap a {view === "heatmap" ? "cell" : "bar"} for details
+                  hover or tap a {view === "heatmap" ? "cell" : "bar"} for
+                  details
                 </span>
               </div>
             )}
