@@ -729,7 +729,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
           <div
             key="view-bars"
             ref={scrollRef}
-            className="no-scrollbar w-full max-w-[1178px] overflow-x-auto px-10 pt-6 pb-8"
+            className="no-scrollbar w-full max-w-[1178px] overflow-x-auto px-3 pt-6 pb-8 sm:px-10"
           >
             <div
               className="relative mx-auto w-fit animate-in cursor-default touch-none duration-300 fill-mode-both fade-in slide-in-from-bottom-1"
