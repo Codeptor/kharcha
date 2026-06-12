@@ -362,21 +362,6 @@ export function Dashboard({ data }: { data: DashboardData }) {
     [locked, hovered, filteredDays, maxCost, resolveIndex, sfx]
   )
 
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      const touch = e.touches[0]
-      if (!touch) return
-      const idx = resolveIndex(touch.clientX)
-      if (idx === null || idx === (locked ?? hovered)) return
-      const day = filteredDays[idx]
-      sfx(tickSound, day ? Math.min(day.total / maxCost, 1) : 0)
-      tickVibrate()
-      if (locked !== null) setLocked(idx)
-      else setHovered(idx)
-    },
-    [locked, hovered, filteredDays, maxCost, resolveIndex, sfx]
-  )
-
   const handleChartClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
@@ -393,20 +378,6 @@ export function Dashboard({ data }: { data: DashboardData }) {
       setLocked(isDeselect ? null : idx)
     },
     [locked, resolveIndex, sfx]
-  )
-
-  const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      e.stopPropagation()
-      const touch = e.touches[0]
-      if (!touch) return
-      const idx = resolveIndex(touch.clientX)
-      if (idx === null) return
-      sfx(selectSound)
-      selectVibrate()
-      setLocked(idx)
-    },
-    [resolveIndex, sfx]
   )
 
   const handleKeyDown = useCallback(
@@ -732,12 +703,10 @@ export function Dashboard({ data }: { data: DashboardData }) {
             className="no-scrollbar w-full max-w-[1178px] overflow-x-auto px-3 pt-6 pb-8 sm:px-10"
           >
             <div
-              className="relative mx-auto w-fit animate-in cursor-default touch-none duration-300 fill-mode-both fade-in slide-in-from-bottom-1"
+              className="relative mx-auto w-fit animate-in cursor-default touch-pan-x duration-300 fill-mode-both fade-in slide-in-from-bottom-1"
               onMouseEnter={() => sfx(enterSound)}
               onMouseMove={handleChartMouseMove}
               onClick={handleChartClick}
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
               onMouseLeave={() => {
                 if (locked === null) {
                   sfx(exitSound)
