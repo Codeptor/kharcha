@@ -15,6 +15,13 @@ function extractPaths(svg: string): string[] {
   return [...matches].map((m) => m[1]!)
 }
 
+// Sakana ("fish") has no lobehub icon — a simple fish (body + forked tail), legible
+// down to ~11px where provider marks render. Used for the codex-fugu / Fugu Ultra model.
+const SAKANA_FISH = [
+  "M3 12a7.5 5 0 1 0 15 0a7.5 5 0 1 0-15 0Z",
+  "M15 12 22 8 19.5 12 22 16Z",
+]
+
 const ICON_PATHS: Record<string, string[]> = {
   anthropic: extractPaths(claudeSvg),
   claude: extractPaths(claudeSvg),
@@ -31,6 +38,8 @@ const ICON_PATHS: Record<string, string[]> = {
   "github-copilot": extractPaths(githubcopilotSvg),
   opencode: extractPaths(opencodeSvg),
   nvidia: extractPaths(nvidiaSvg),
+  sakana: SAKANA_FISH,
+  fugu: SAKANA_FISH,
 }
 
 export function ProviderIcon({

@@ -3,6 +3,7 @@ import { constants as fsConstants } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import {
   buildSyncBatch,
+  CUSTOM_PRICING,
   fetchModelsDevCatalog,
   readClaudeCodeUsage,
   readClaudeStatsCache,
@@ -62,8 +63,7 @@ async function loadPricingLookup() {
   const nimZeroKeys: string[] = []
   for (const [key, snap] of lookup) {
     if (!key.startsWith("nvidia:")) continue
-    const allZero =
-      (snap.inputCost ?? 0) === 0 && (snap.outputCost ?? 0) === 0
+    const allZero = (snap.inputCost ?? 0) === 0 && (snap.outputCost ?? 0) === 0
     if (allZero) nimZeroKeys.push(key)
   }
   // Prefer "native" first-party providers, then well-known cheap hosts,
@@ -110,14 +110,10 @@ async function loadPricingLookup() {
       const providerId = otherKey.slice(0, colon)
       const otherModel = otherKey.slice(colon + 1)
       if (lastSegment(otherModel) !== tail) continue
-      const rate =
-        (otherSnap.inputCost ?? 0) + (otherSnap.outputCost ?? 0)
+      const rate = (otherSnap.inputCost ?? 0) + (otherSnap.outputCost ?? 0)
       if (rate <= 0) continue
       const tier = providerTier(providerId)
-      if (
-        tier < bestTier ||
-        (tier === bestTier && rate < bestRate)
-      ) {
+      if (tier < bestTier || (tier === bestTier && rate < bestRate)) {
         bestTier = tier
         bestRate = rate
         best = otherSnap
@@ -128,7 +124,15 @@ async function loadPricingLookup() {
       shadowed += 1
     }
   }
-  if (shadowed > 0) console.log(`  shadow-priced ${shadowed} NVIDIA NIM models from retail equivalents`)
+  if (shadowed > 0)
+    console.log(
+      `  shadow-priced ${shadowed} NVIDIA NIM models from retail equivalents`
+    )
+
+  // Override with pricing for models models.dev does not list (e.g. Sakana Fugu).
+  for (const [key, snapshot] of Object.entries(CUSTOM_PRICING)) {
+    lookup.set(key, snapshot)
+  }
 
   console.log(`  ${catalog.length} models loaded`)
   return lookup
@@ -149,7 +153,9 @@ async function loadUsageRows() {
     },
     {
       name: "OpenCode",
-      path: process.env.OPENCODE_PATH ?? join(home, ".local/share/opencode/opencode.db"),
+      path:
+        process.env.OPENCODE_PATH ??
+        join(home, ".local/share/opencode/opencode.db"),
       reader: readOpenCodeUsage,
     },
     {
@@ -170,7 +176,9 @@ async function loadUsageRows() {
     rows.push(...result)
   }
 
-  const statsCachePath = process.env.CLAUDE_STATS_CACHE_PATH ?? join(home, ".claude/stats-cache.json")
+  const statsCachePath =
+    process.env.CLAUDE_STATS_CACHE_PATH ??
+    join(home, ".claude/stats-cache.json")
   if (await pathExists(statsCachePath)) {
     const backfill = await readClaudeStatsCache(statsCachePath, rows)
     console.log(`  Claude stats cache: ${backfill.length} backfill rows`)
@@ -192,8 +200,14 @@ async function loadUsageRows() {
 
     const winCachePath = join(claudeDir, "stats-cache.json")
     if (await pathExists(winCachePath)) {
-      const backfill = await readClaudeStatsCache(winCachePath, winRows, `windows-${user}`)
-      console.log(`  Claude stats cache (Windows · ${user}): ${backfill.length} backfill rows`)
+      const backfill = await readClaudeStatsCache(
+        winCachePath,
+        winRows,
+        `windows-${user}`
+      )
+      console.log(
+        `  Claude stats cache (Windows · ${user}): ${backfill.length} backfill rows`
+      )
       rows.push(...backfill)
     }
   }
@@ -220,7 +234,7 @@ async function main() {
   const days = [...new Set(batch.rows.map((r) => r.day))].sort()
 
   console.log(
-    `  ${batch.rows.length} rows, ${sources.length} sources, ${days.length} days, ${formatCost(totalCost)} total`,
+    `  ${batch.rows.length} rows, ${sources.length} sources, ${days.length} days, ${formatCost(totalCost)} total`
   )
 
   if (dryRun) {
@@ -251,7 +265,7 @@ async function main() {
 
   const result = (await response.json()) as Record<string, unknown>
   console.log(
-    `  done — ${result.usageRowsInserted} rows, ${result.dailyRollupsInserted} rollups, ${(result.affectedDays as string[])?.length ?? 0} days affected\n`,
+    `  done — ${result.usageRowsInserted} rows, ${result.dailyRollupsInserted} rollups, ${(result.affectedDays as string[])?.length ?? 0} days affected\n`
   )
 }
 

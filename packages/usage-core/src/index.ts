@@ -1,9 +1,20 @@
 export { normalizeModelKey } from "./model-aliases"
-export type { PricingMode, PricingSnapshot, NormalizedModelKey, UsageSlice } from "./types"
+export type {
+  PricingMode,
+  PricingSnapshot,
+  NormalizedModelKey,
+  UsageSlice,
+} from "./types"
 export { freezePricing, parseModelsDevCatalog } from "./pricing/freeze-pricing"
 export { fetchModelsDevCatalog, toPricingSnapshot } from "./pricing/models-dev"
+export { CUSTOM_PRICING } from "./pricing/custom-pricing"
 export { buildSyncBatch } from "./build-sync-batch"
-export type { SyncBatch, SyncBatchRow, SyncPricingLookup, SyncPricingSnapshot } from "./build-sync-batch"
+export type {
+  SyncBatch,
+  SyncBatchRow,
+  SyncPricingLookup,
+  SyncPricingSnapshot,
+} from "./build-sync-batch"
 export { readClaudeCodeUsage } from "./sources/claude-code"
 export { readClaudeStatsCache } from "./sources/claude-code-cache"
 export { readCodexUsage } from "./sources/codex"
