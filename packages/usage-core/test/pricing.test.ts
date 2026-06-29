@@ -44,6 +44,28 @@ describe("freezePricing", () => {
       costUsd: 8,
     })
   })
+
+  it("does not mark missing token counters as a zero-dollar estimate", () => {
+    expect(
+      freezePricing({
+        exactCostUsd: null,
+        pricingMatch: {
+          inputCost: 2,
+          outputCost: 3,
+          cacheReadCost: 4,
+          cacheWriteCost: 5,
+        },
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+      })
+    ).toEqual({
+      pricingMode: "unpriced",
+      costUsd: 0,
+      snapshot: null,
+    })
+  })
 })
 
 describe("custom pricing", () => {

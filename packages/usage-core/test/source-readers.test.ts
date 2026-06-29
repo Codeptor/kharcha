@@ -52,13 +52,13 @@ describe("source readers", () => {
   it("reads Codex rollout metadata", async () => {
     const rows = await readCodexUsage("packages/usage-core/test/fixtures/codex-rollout.jsonl")
 
-    // One rollout file = one session. Tokens come from the final cumulative token_count,
-    // with cached input removed from input and reasoning folded into output.
+    // One rollout file = one session. Tokens come from the final cumulative token_count;
+    // cached input is removed from input, and Codex output already includes reasoning.
     expect(rows).toHaveLength(1)
     expect(rows[0]?.provider).toBe("openai")
     expect(rows[0]?.model).toBe("gpt-5.4")
     expect(rows[0]?.inputTokens).toBe(3000)
-    expect(rows[0]?.outputTokens).toBe(1300)
+    expect(rows[0]?.outputTokens).toBe(900)
     expect(rows[0]?.cacheReadTokens).toBe(1000)
   })
 
@@ -135,7 +135,7 @@ describe("source readers", () => {
           'msg-1',
           'session-1',
           1771551784680,
-          '{"role":"assistant","providerID":"anthropic","modelID":"claude-opus-4-6","cost":0.42,"tokens":{"input":1000,"output":300,"total":1300}}'
+          '{"role":"assistant","providerID":"anthropic","modelID":"claude-opus-4-6","cost":0.42,"tokens":{"input":1000,"output":300,"reasoning":50,"total":1550,"cache":{"read":200,"write":0}}}'
         )
       `)
     } finally {
@@ -143,7 +143,12 @@ describe("source readers", () => {
     }
 
     try {
-      await expect(readOpenCodeUsage(dbPath)).resolves.toHaveLength(1)
+      const rows = await readOpenCodeUsage(dbPath)
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.outputTokens).toBe(350)
+      expect(rows[0]?.cacheReadTokens).toBe(200)
+      expect(rows[0]?.cacheWriteTokens).toBe(0)
     } finally {
       await rm(tempDir, { recursive: true, force: true })
     }

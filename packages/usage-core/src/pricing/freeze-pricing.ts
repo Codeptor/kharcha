@@ -29,6 +29,20 @@ export function freezePricing(input: {
     }
   }
 
+  const hasTokenCounters =
+    input.inputTokens !== null ||
+    input.outputTokens !== null ||
+    input.cacheReadTokens !== null ||
+    input.cacheWriteTokens !== null
+
+  if (!hasTokenCounters) {
+    return {
+      pricingMode: "unpriced",
+      costUsd: 0,
+      snapshot: null,
+    }
+  }
+
   const costUsd =
     ((input.inputTokens ?? 0) / 1_000_000) * (input.pricingMatch.inputCost ?? 0) +
     ((input.outputTokens ?? 0) / 1_000_000) * (input.pricingMatch.outputCost ?? 0) +

@@ -18,6 +18,7 @@ type OpenCodeRecord = {
   tokens?: {
     input?: number
     output?: number
+    reasoning?: number
     total?: number
     cache?: {
       read?: number
@@ -87,6 +88,11 @@ function readColumnValue(row: Record<string, unknown>, key: string): string | nu
   return undefined
 }
 
+function outputTokens(tokens: OpenCodeRecord["tokens"] | undefined): number | null {
+  if (tokens?.output === undefined && tokens?.reasoning === undefined) return null
+  return (tokens.output ?? 0) + (tokens.reasoning ?? 0)
+}
+
 async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
   const content = await readFile(targetPath, "utf8")
   const parsed = JSON.parse(content) as OpenCodeRecord
@@ -107,7 +113,7 @@ async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
       day: toDay(createdAt ?? undefined),
       startedAt: createdAt ? new Date(createdAt).toISOString() : null,
       inputTokens: tokens.input ?? null,
-      outputTokens: tokens.output ?? null,
+      outputTokens: outputTokens(tokens),
       cacheReadTokens: tokens.cache?.read ?? null,
       cacheWriteTokens: tokens.cache?.write ?? null,
       exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
@@ -143,9 +149,9 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
         day: toDay(timeCreated ?? record.time?.created ?? undefined),
         startedAt: typeof timeCreated === "number" ? new Date(timeCreated).toISOString() : null,
         inputTokens: tokens.input ?? null,
-        outputTokens: tokens.output ?? null,
-        cacheReadTokens: null,
-        cacheWriteTokens: null,
+        outputTokens: outputTokens(tokens),
+        cacheReadTokens: tokens.cache?.read ?? null,
+        cacheWriteTokens: tokens.cache?.write ?? null,
         exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
         sourceSessionHash: hashSessionId(
           typeof sessionId === "string" ? sessionId : typeof id === "string" ? id : targetPath,
@@ -185,9 +191,9 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
         day: toDay(parsed.time_created ?? record.time?.created ?? undefined),
         startedAt: parsed.time_created ? new Date(parsed.time_created).toISOString() : null,
         inputTokens: tokens.input ?? null,
-        outputTokens: tokens.output ?? null,
-        cacheReadTokens: null,
-        cacheWriteTokens: null,
+        outputTokens: outputTokens(tokens),
+        cacheReadTokens: tokens.cache?.read ?? null,
+        cacheWriteTokens: tokens.cache?.write ?? null,
         exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
         sourceSessionHash: hashSessionId(parsed.session_id ?? parsed.id ?? targetPath),
       })

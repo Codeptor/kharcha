@@ -123,9 +123,7 @@ async function readCodexJsonl(filePath: string): Promise<UsageSlice[]> {
   const inputRaw = lastTotal?.input_tokens ?? 0
   const cached = lastTotal?.cached_input_tokens ?? 0
   const output = lastTotal?.output_tokens ?? 0
-  const reasoning = lastTotal?.reasoning_output_tokens ?? 0
   const newInput = Math.max(0, inputRaw - cached)
-  const totalOutput = output + reasoning
 
   return [
     {
@@ -135,7 +133,7 @@ async function readCodexJsonl(filePath: string): Promise<UsageSlice[]> {
       day: toDay(sessionMeta.timestamp),
       startedAt: sessionMeta.timestamp ?? null,
       inputTokens: lastTotal ? newInput : null,
-      outputTokens: lastTotal ? totalOutput : null,
+      outputTokens: lastTotal ? output : null,
       cacheReadTokens: lastTotal ? cached : null,
       cacheWriteTokens: null,
       exactCostUsd: null,
