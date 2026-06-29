@@ -193,7 +193,7 @@ export function StatsPanel({
             <span className="w-10 text-right sm:w-12">share</span>
           </span>
         </div>
-        <div className="no-scrollbar flex max-h-52 flex-col gap-0.5 overflow-y-auto pr-1 sm:max-h-64">
+        <div className="no-scrollbar flex max-h-52 flex-col gap-0.5 overflow-y-auto pr-1 sm:max-h-[clamp(8rem,calc(100dvh-35rem),16rem)]">
           {filteredStats.map((m) => {
             const selected = selectedModels.has(m.key)
             const dimmed = selectedModels.size > 0 && !selected

@@ -462,7 +462,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
   return (
     <div
-      className="relative flex min-h-svh flex-col overflow-x-clip bg-[#ede8e1] dark:bg-stone-950"
+      className="relative flex h-svh min-h-svh flex-col overflow-hidden bg-[#ede8e1] dark:bg-stone-950"
       onKeyDown={handleKeyDown}
       onPointerDown={() => {
         sfx(bootSound)
@@ -476,9 +476,9 @@ export function Dashboard({ data }: { data: DashboardData }) {
     >
       {/* Header */}
       <header className="fixed inset-x-0 top-0 z-50 animate-in px-4 pt-4 pb-2 duration-500 fill-mode-both fade-in slide-in-from-top-2 sm:px-6 sm:pt-[30px] sm:pb-3">
-        <div className="mx-auto flex max-w-[1178px] items-center justify-between gap-4">
+        <div className="mx-auto flex max-w-[1178px] items-center justify-between gap-2 sm:gap-4">
           {/* Range + view pills */}
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <div className="flex gap-1.5 sm:gap-2">
               {(["7d", "30d", "all"] as const).map((r) => (
                 <button
@@ -507,6 +507,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               {(["bars", "heatmap", "stats"] as const).map((v) => (
                 <button
                   key={v}
+                  aria-label={v}
                   onClick={(e) => {
                     e.stopPropagation()
                     toggleVibrate()
@@ -520,7 +521,14 @@ export function Dashboard({ data }: { data: DashboardData }) {
                       : "text-stone-400 hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
                   }`}
                 >
-                  {v}
+                  {v === "heatmap" ? (
+                    <>
+                      <span className="sm:hidden">map</span>
+                      <span className="hidden sm:inline">heatmap</span>
+                    </>
+                  ) : (
+                    v
+                  )}
                 </button>
               ))}
             </div>
@@ -543,7 +551,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
             </span>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
             {data.lastSynced && (
               <span className="hidden font-mono text-[10px] text-stone-400 sm:inline dark:text-stone-600">
                 synced {syncedLabel ?? " "}
@@ -565,7 +573,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
                 e.stopPropagation()
                 setMuted((m) => !m)
               }}
-              className="font-mono text-[10px] text-stone-400 transition-colors hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
+              className="hidden font-mono text-[10px] text-stone-400 transition-colors hover:text-stone-600 sm:inline-flex dark:text-stone-600 dark:hover:text-stone-400"
               title={muted ? "unmute" : "mute"}
             >
               {muted ? <VolumeOff size={12} /> : <Volume2 size={12} />}
@@ -580,7 +588,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
             >
               {resolvedTheme === "dark" ? "light" : "dark"}
             </button>
-            <div className="text-right">
+            <div className="min-w-0 text-right">
               <div
                 className="flex items-baseline justify-end gap-1.5 text-sm tracking-tight text-stone-800 dark:text-stone-100"
                 style={{ fontFamily: "var(--font-display)" }}
