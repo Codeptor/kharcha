@@ -633,9 +633,9 @@ export function Dashboard({ data }: { data: DashboardData }) {
         {view === "stats" ? (
           <div
             key="view-stats"
-            className="grid w-full max-w-[1200px] animate-in grid-cols-1 gap-10 duration-300 fill-mode-both fade-in slide-in-from-bottom-1 lg:grid-cols-2 lg:gap-14"
+            className="no-scrollbar grid h-[calc(100dvh-9.5rem)] min-h-0 w-full max-w-[1200px] animate-in grid-cols-1 gap-4 overflow-y-auto duration-300 fill-mode-both fade-in slide-in-from-bottom-1 sm:h-[calc(100dvh-8rem)] lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)] lg:gap-8 lg:overflow-hidden"
           >
-            <div className="flex flex-col gap-6 sm:gap-8">
+            <div className="min-h-0 pr-1 lg:overflow-y-auto">
               <StatsPanel
                 streaks={streaks}
                 modelStats={modelStats}
@@ -650,8 +650,8 @@ export function Dashboard({ data }: { data: DashboardData }) {
                 fmtTokens={fmtTokens}
               />
             </div>
-            <div className="flex flex-col gap-6 sm:gap-8">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
+            <div className="flex min-h-0 flex-col gap-4 pr-1 sm:gap-5 lg:overflow-y-auto">
+              <div className="grid grid-cols-2 gap-x-5 gap-y-2 font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
                 <Metric label="sources" value={uniqueSources.toString()} />
                 <Metric label="models" value={uniqueModels.toString()} />
                 <Metric

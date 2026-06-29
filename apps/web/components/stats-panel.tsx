@@ -69,8 +69,8 @@ export function StatsPanel({
   }, [modelStats, query])
 
   return (
-    <div className="flex flex-col gap-6 sm:gap-8">
-      <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+    <div className="flex min-h-0 flex-col gap-3 sm:gap-4">
+      <div className="grid grid-cols-4 gap-2 text-center">
         <Stat label="tokens" value={fmtTokens(metrics.totalTokens)} />
         <Stat
           label="priced"
@@ -101,7 +101,7 @@ export function StatsPanel({
         <Stat label="rate" value={`${activePct}%`} />
       </div>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[10px] text-stone-500 sm:grid-cols-4 sm:text-[11px] dark:text-stone-500">
+      <div className="grid grid-cols-2 gap-x-5 gap-y-2 font-mono text-[10px] text-stone-500 sm:grid-cols-4 sm:text-[11px] dark:text-stone-500">
         <Metric label="input" value={fmtTokens(metrics.input)} />
         <Metric label="output" value={fmtTokens(metrics.output)} />
         <Metric label="cache read" value={fmtTokens(metrics.cacheRead)} />
@@ -143,12 +143,12 @@ export function StatsPanel({
         ))}
       </div>
 
-      <div>
+      <div className="min-h-0">
         <div className="mb-2 flex items-center justify-between px-1 font-mono text-[10px] text-stone-400 dark:text-stone-600">
           <span>sources</span>
           <span>tokens · cost/mtok</span>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="no-scrollbar flex max-h-24 flex-col gap-1 overflow-y-auto pr-1 sm:max-h-28">
           {metrics.sourceStats.map((source) => (
             <div key={source.source} className="flex items-center gap-2 px-1">
               <span className="inline-flex w-4 shrink-0 justify-center">
@@ -171,7 +171,7 @@ export function StatsPanel({
         </div>
       </div>
 
-      <div>
+      <div className="min-h-0">
         <div className="mb-2 flex items-center gap-2 px-1 font-mono text-[10px] text-stone-400 sm:mb-3 sm:gap-3 dark:text-stone-600">
           <span className="w-4" />
           <span className="flex flex-1 items-center gap-2">
@@ -193,8 +193,8 @@ export function StatsPanel({
             <span className="w-10 text-right sm:w-12">share</span>
           </span>
         </div>
-        <div className="flex flex-col gap-0.5">
-          {filteredStats.slice(0, 12).map((m) => {
+        <div className="no-scrollbar flex max-h-52 flex-col gap-0.5 overflow-y-auto pr-1 sm:max-h-64">
+          {filteredStats.map((m) => {
             const selected = selectedModels.has(m.key)
             const dimmed = selectedModels.size > 0 && !selected
             return (
@@ -268,7 +268,7 @@ function Stat({
   return (
     <div className="flex flex-col gap-0.5">
       <span
-        className="text-xl tracking-tight text-stone-800 sm:text-2xl dark:text-stone-100"
+        className="text-lg tracking-tight text-stone-800 sm:text-xl dark:text-stone-100"
         style={{ fontFamily: "var(--font-display)" }}
       >
         {value}
