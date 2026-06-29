@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import type { ModelStat, StreakInfo } from "@/lib/dashboard/stats"
+import type { ModelStat, StreakInfo, UsageMetrics } from "@/lib/dashboard/stats"
 import { ProviderIcon } from "./provider-icon"
 
 function displayModel(label: string): string {
@@ -20,15 +20,19 @@ function displayModel(label: string): string {
 export function StatsPanel({
   streaks,
   modelStats,
+  metrics,
   onSelectModel,
   selectedModels,
   fmt,
+  fmtTokens,
 }: {
   streaks: StreakInfo
   modelStats: ModelStat[]
+  metrics: UsageMetrics
   onSelectModel: (key: string) => void
   selectedModels: Set<string>
   fmt: (v: number) => string
+  fmtTokens: (v: number) => string
 }) {
   const activePct =
     streaks.totalDays > 0
@@ -60,17 +64,111 @@ export function StatsPanel({
     return modelStats.filter(
       (m) =>
         m.label.toLowerCase().includes(q) ||
-        m.provider.toLowerCase().includes(q),
+        m.provider.toLowerCase().includes(q)
     )
   }, [modelStats, query])
 
   return (
     <div className="flex flex-col gap-6 sm:gap-8">
+      <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+        <Stat label="tokens" value={fmtTokens(metrics.totalTokens)} />
+        <Stat
+          label="priced"
+          value={`${(metrics.pricedCoverage * 100).toFixed(1)}%`}
+        />
+        <Stat
+          label="cost/mtok"
+          value={
+            metrics.costPerMillionTokens === null
+              ? "n/a"
+              : fmt(metrics.costPerMillionTokens)
+          }
+        />
+        <Stat
+          label="cache"
+          value={`${(metrics.cacheShare * 100).toFixed(1)}%`}
+        />
+      </div>
+
       <div className="grid grid-cols-4 gap-2 text-center">
         <Stat label="current" value={`${streaks.current}d`} />
         <Stat label="longest" value={`${streaks.longest}d`} />
-        <Stat label="active" value={`${streaks.activeDays}`} sub={`of ${streaks.totalDays}`} />
+        <Stat
+          label="active"
+          value={`${streaks.activeDays}`}
+          sub={`of ${streaks.totalDays}`}
+        />
         <Stat label="rate" value={`${activePct}%`} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[10px] text-stone-500 sm:grid-cols-4 sm:text-[11px] dark:text-stone-500">
+        <Metric label="input" value={fmtTokens(metrics.input)} />
+        <Metric label="output" value={fmtTokens(metrics.output)} />
+        <Metric label="cache read" value={fmtTokens(metrics.cacheRead)} />
+        <Metric label="cache write" value={fmtTokens(metrics.cacheWrite)} />
+        <Metric label="rows" value={metrics.rows.toLocaleString()} />
+        <Metric
+          label="token rows"
+          value={metrics.nonzeroTokenRows.toLocaleString()}
+        />
+        <Metric
+          label="unpriced tok"
+          value={fmtTokens(metrics.unpricedTokens)}
+        />
+        <Metric
+          label="unpriced rows"
+          value={metrics.unpricedNonzeroRows.toLocaleString()}
+        />
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        {metrics.modeStats.map((mode) => (
+          <div
+            key={mode.mode}
+            className="border-t border-stone-300 pt-2 dark:border-stone-800"
+          >
+            <div className="font-mono text-[9px] text-stone-400 dark:text-stone-600">
+              {mode.mode}
+            </div>
+            <div
+              className="text-[15px] text-stone-800 dark:text-stone-200"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              {fmt(mode.costUsd)}
+            </div>
+            <div className="font-mono text-[9px] text-stone-500 dark:text-stone-500">
+              {fmtTokens(mode.totalTokens)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between px-1 font-mono text-[10px] text-stone-400 dark:text-stone-600">
+          <span>sources</span>
+          <span>tokens · cost/mtok</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          {metrics.sourceStats.map((source) => (
+            <div key={source.source} className="flex items-center gap-2 px-1">
+              <span className="inline-flex w-4 shrink-0 justify-center">
+                <ProviderIcon name={source.source} size={11} />
+              </span>
+              <span
+                className="min-w-0 flex-1 truncate text-[11px] text-stone-700 sm:text-[13px] dark:text-stone-300"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                {source.source}
+              </span>
+              <span className="font-mono text-[10px] text-stone-500 tabular-nums sm:text-[12px] dark:text-stone-400">
+                {fmtTokens(source.totalTokens)} ·{" "}
+                {source.costPerMillionTokens === null
+                  ? "n/a"
+                  : fmt(source.costPerMillionTokens)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div>
@@ -85,13 +183,13 @@ export function StatsPanel({
               onChange={(e) => setQuery(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               placeholder="filter… (/)"
-              className="w-24 border-b border-stone-300 bg-transparent px-1 py-0.5 font-mono text-[10px] text-stone-700 placeholder-stone-400 outline-none transition-colors focus:border-amber-500 sm:w-32 dark:border-stone-700 dark:text-stone-300 dark:placeholder-stone-600 dark:focus:border-amber-400"
+              className="w-24 border-b border-stone-300 bg-transparent px-1 py-0.5 font-mono text-[10px] text-stone-700 placeholder-stone-400 transition-colors outline-none focus:border-amber-500 sm:w-32 dark:border-stone-700 dark:text-stone-300 dark:placeholder-stone-600 dark:focus:border-amber-400"
             />
           </span>
           <span className="flex shrink-0 gap-4 sm:gap-8">
             <span className="w-10 text-right sm:w-14">total</span>
-            <span className="w-10 text-right sm:w-14">days</span>
-            <span className="w-12 text-right sm:w-16">$/day</span>
+            <span className="w-10 text-right sm:w-14">tokens</span>
+            <span className="w-12 text-right sm:w-16">$/mtok</span>
             <span className="w-10 text-right sm:w-12">share</span>
           </span>
         </div>
@@ -119,15 +217,23 @@ export function StatsPanel({
                   <ProviderIcon name={m.provider} size={11} />
                 </span>
                 <span
-                  className="min-w-0 flex-1 truncate text-[11px] sm:text-[13px] text-stone-700 dark:text-stone-300"
+                  className="min-w-0 flex-1 truncate text-[11px] text-stone-700 sm:text-[13px] dark:text-stone-300"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {displayModel(m.label)}
                 </span>
                 <span className="flex shrink-0 gap-4 font-mono text-[10px] text-stone-500 tabular-nums sm:gap-8 sm:text-[12px] dark:text-stone-400">
-                  <span className="w-10 text-right sm:w-14">{fmt(m.costUsd)}</span>
-                  <span className="w-10 text-right sm:w-14">{m.activeDays}</span>
-                  <span className="w-12 text-right sm:w-16">{fmt(m.avgPerActiveDay)}</span>
+                  <span className="w-10 text-right sm:w-14">
+                    {fmt(m.costUsd)}
+                  </span>
+                  <span className="w-10 text-right sm:w-14">
+                    {fmtTokens(m.totalTokens)}
+                  </span>
+                  <span className="w-12 text-right sm:w-16">
+                    {m.costPerMillionTokens === null
+                      ? "n/a"
+                      : fmt(m.costPerMillionTokens)}
+                  </span>
                   <span className="w-10 text-right sm:w-12">
                     {(m.share * 100).toFixed(1)}%
                   </span>
@@ -141,7 +247,24 @@ export function StatsPanel({
   )
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 border-b border-stone-300/70 pb-1 dark:border-stone-800">
+      <span className="text-stone-400 dark:text-stone-600">{label}</span>
+      <span className="text-stone-700 dark:text-stone-300">{value}</span>
+    </div>
+  )
+}
+
+function Stat({
+  label,
+  value,
+  sub,
+}: {
+  label: string
+  value: string
+  sub?: string
+}) {
   return (
     <div className="flex flex-col gap-0.5">
       <span

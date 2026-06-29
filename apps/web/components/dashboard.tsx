@@ -9,7 +9,11 @@ import {
   useSyncExternalStore,
 } from "react"
 import type { DashboardData } from "@/lib/dashboard/chart-shape"
-import { computeStreaks, computeModelStats } from "@/lib/dashboard/stats"
+import {
+  computeStreaks,
+  computeModelStats,
+  computeUsageMetrics,
+} from "@/lib/dashboard/stats"
 import {
   type Currency,
   formatCompact,
@@ -46,13 +50,8 @@ function fmtTokens(n: number): string {
   return n.toString()
 }
 
-function tokenTooltip(t: {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-}): string {
-  return `in ${fmtTokens(t.input)} · out ${fmtTokens(t.output)} · cache-read ${fmtTokens(t.cacheRead)} · cache-write ${fmtTokens(t.cacheWrite)}`
+function fmtPct(n: number): string {
+  return `${(n * 100).toFixed(1)}%`
 }
 
 function fmtDate(iso: string) {
@@ -232,6 +231,10 @@ export function Dashboard({ data }: { data: DashboardData }) {
   )
   const streaks = useMemo(() => computeStreaks(filteredDays), [filteredDays])
   const modelStats = useMemo(() => computeModelStats(rangedDays), [rangedDays])
+  const metrics = useMemo(
+    () => computeUsageMetrics(filteredDays),
+    [filteredDays]
+  )
 
   const prevRangeTotal = useMemo(() => {
     if (range === "all") return null
@@ -527,18 +530,17 @@ export function Dashboard({ data }: { data: DashboardData }) {
           <div className="hidden flex-1 items-center justify-center gap-3 font-mono text-[10px] text-stone-400 md:flex md:gap-4 md:text-[11px] dark:text-stone-600">
             <span>{filteredDays.filter((d) => d.total > 0).length} days</span>
             <span className="text-stone-300 dark:text-stone-700">·</span>
-            <span>{uniqueSources} sources</span>
+            <span>{fmtTokens(metrics.totalTokens)} tokens</span>
             <span className="text-stone-300 dark:text-stone-700">·</span>
-            <span>{uniqueModels} models</span>
-            {data.tokenTotals && (
-              <>
-                <span className="text-stone-300 dark:text-stone-700">·</span>
-                <span title={tokenTooltip(data.tokenTotals)}>
-                  {fmtTokens(data.tokenTotals.input + data.tokenTotals.output)}{" "}
-                  tokens
-                </span>
-              </>
-            )}
+            <span>{fmtPct(metrics.pricedCoverage)} priced</span>
+            <span className="text-stone-300 dark:text-stone-700">·</span>
+            <span>{fmtPct(metrics.cacheShare)} cache</span>
+            <span className="text-stone-300 dark:text-stone-700">·</span>
+            <span>
+              {metrics.costPerMillionTokens === null
+                ? "n/a"
+                : `${fmt(metrics.costPerMillionTokens)}/mtok`}
+            </span>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -620,18 +622,11 @@ export function Dashboard({ data }: { data: DashboardData }) {
         >
           <span>{filteredDays.filter((d) => d.total > 0).length} days</span>
           <span className="text-stone-300 dark:text-stone-700">·</span>
-          <span>{uniqueSources} sources</span>
+          <span>{fmtTokens(metrics.totalTokens)} tokens</span>
           <span className="text-stone-300 dark:text-stone-700">·</span>
-          <span>{uniqueModels} models</span>
-          {data.tokenTotals && (
-            <>
-              <span className="text-stone-300 dark:text-stone-700">·</span>
-              <span title={tokenTooltip(data.tokenTotals)}>
-                {fmtTokens(data.tokenTotals.input + data.tokenTotals.output)}{" "}
-                tokens
-              </span>
-            </>
-          )}
+          <span>{fmtPct(metrics.pricedCoverage)} priced</span>
+          <span className="text-stone-300 dark:text-stone-700">·</span>
+          <span>{fmtPct(metrics.cacheShare)} cache</span>
         </div>
 
         {/* Chart area */}
@@ -644,6 +639,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               <StatsPanel
                 streaks={streaks}
                 modelStats={modelStats}
+                metrics={metrics}
                 onSelectModel={(k) => {
                   sfx(selectSound)
                   selectVibrate()
@@ -651,9 +647,35 @@ export function Dashboard({ data }: { data: DashboardData }) {
                 }}
                 selectedModels={selectedModels}
                 fmt={fmt}
+                fmtTokens={fmtTokens}
               />
             </div>
             <div className="flex flex-col gap-6 sm:gap-8">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
+                <Metric label="sources" value={uniqueSources.toString()} />
+                <Metric label="models" value={uniqueModels.toString()} />
+                <Metric
+                  label="direct tokens"
+                  value={fmtTokens(metrics.directTokens)}
+                />
+                <Metric
+                  label="cache tokens"
+                  value={fmtTokens(metrics.cacheTokens)}
+                />
+                <Metric label="exact spend" value={fmt(metrics.exactCostUsd)} />
+                <Metric
+                  label="estimated spend"
+                  value={fmt(metrics.estimatedCostUsd)}
+                />
+                <Metric
+                  label="output share"
+                  value={fmtPct(metrics.outputShare)}
+                />
+                <Metric
+                  label="cache-read share"
+                  value={fmtPct(metrics.cacheReadShare)}
+                />
+              </div>
               {data.hourBuckets && data.hourBuckets.length > 0 && (
                 <div className="flex flex-col gap-2">
                   <div className="flex items-baseline justify-between font-mono text-[10px] text-stone-400 dark:text-stone-600">
@@ -823,6 +845,11 @@ export function Dashboard({ data }: { data: DashboardData }) {
                   <span className="inline-block w-16 text-right font-mono text-[11px] text-stone-500 tabular-nums sm:w-20 sm:text-[13px] dark:text-stone-400">
                     {fmt(seg.costUsd)}
                   </span>
+                  <span className="inline-block w-16 text-right font-mono text-[10px] text-stone-400 tabular-nums sm:w-20 sm:text-[12px] dark:text-stone-500">
+                    {fmtTokens(
+                      seg.input + seg.output + seg.cacheRead + seg.cacheWrite
+                    )}
+                  </span>
                   <span className="inline-flex w-5 justify-end sm:w-6">
                     <ProviderIcon name={seg.source} size={11} />
                   </span>
@@ -913,6 +940,15 @@ export function Dashboard({ data }: { data: DashboardData }) {
           )}
         </div>
       </footer>
+    </div>
+  )
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 border-b border-stone-300/70 pb-1 dark:border-stone-800">
+      <span className="text-stone-400 dark:text-stone-600">{label}</span>
+      <span className="text-stone-700 dark:text-stone-300">{value}</span>
     </div>
   )
 }

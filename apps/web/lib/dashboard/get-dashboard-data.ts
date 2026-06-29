@@ -13,10 +13,19 @@ export async function getDashboardData() {
         provider: usageRows.provider,
         model: usageRows.model,
         costUsd: usageRows.costUsd,
+        pricingMode: usageRows.pricingMode,
+        inputTokens: usageRows.inputTokens,
+        outputTokens: usageRows.outputTokens,
+        cacheReadTokens: usageRows.cacheReadTokens,
+        cacheWriteTokens: usageRows.cacheWriteTokens,
         createdAt: usageRows.createdAt,
       })
       .from(usageRows)
-      .orderBy(asc(usageRows.day), asc(usageRows.provider), asc(usageRows.model)),
+      .orderBy(
+        asc(usageRows.day),
+        asc(usageRows.provider),
+        asc(usageRows.model)
+      ),
     db
       .select({
         dayOfWeek: hourOfDayBuckets.dayOfWeek,

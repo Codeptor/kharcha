@@ -10,6 +10,11 @@ describe("buildChartData", () => {
         provider: "anthropic",
         model: "claude-opus-4-6",
         costUsd: "1.50",
+        pricingMode: "estimated",
+        inputTokens: 1000,
+        outputTokens: 200,
+        cacheReadTokens: 3000,
+        cacheWriteTokens: 400,
         createdAt: null,
       },
       {
@@ -18,6 +23,11 @@ describe("buildChartData", () => {
         provider: "google",
         model: "gemini-3.1-pro-preview-customtools",
         costUsd: "2.00",
+        pricingMode: "exact",
+        inputTokens: 500,
+        outputTokens: 100,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
         createdAt: null,
       },
     ])
@@ -25,5 +35,6 @@ describe("buildChartData", () => {
     expect(result.lifetimeTotalUsd).toBe(3.5)
     expect(result.days).toHaveLength(1)
     expect(result.days[0]?.segments).toHaveLength(2)
+    expect(result.days[0]?.segments[0]?.modeTotals).toHaveLength(1)
   })
 })
