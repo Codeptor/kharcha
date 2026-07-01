@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
+import { existsSync, readFileSync } from "node:fs"
 import { readdir, readFile, stat } from "node:fs/promises"
+import { resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
@@ -27,6 +29,14 @@ type CodexSessionLine = {
   }
 }
 
+type ParsedCodexRollout = {
+  sessionId: string | null
+  timestamp: string | undefined
+  provider: string | null
+  model: string | null
+  usage: CodexTokenUsage | null
+}
+
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   openai: "gpt-5.4",
   anthropic: "claude-sonnet-4-6",
@@ -50,10 +60,12 @@ async function collectCodexTargets(targetPath: string): Promise<string[]> {
       if (entry.isDirectory()) {
         return collectCodexTargets(childPath)
       }
-      return childPath.endsWith(".jsonl") || childPath.endsWith(".sqlite") || childPath.endsWith(".db")
+      return childPath.endsWith(".jsonl") ||
+        childPath.endsWith(".sqlite") ||
+        childPath.endsWith(".db")
         ? [childPath]
         : []
-    }),
+    })
   )
 
   return children.flat()
@@ -69,7 +81,8 @@ function localDate(d: Date): string {
 
 function toDay(value?: string | number): string {
   if (value === undefined || value === null) return localDate(new Date())
-  const date = typeof value === "number" ? new Date(toTimestampMs(value)) : new Date(value)
+  const date =
+    typeof value === "number" ? new Date(toTimestampMs(value)) : new Date(value)
   return Number.isNaN(date.getTime()) ? localDate(new Date()) : localDate(date)
 }
 
@@ -85,9 +98,7 @@ function parseJsonlLine(line: string): CodexSessionLine | null {
   }
 }
 
-async function readCodexJsonl(filePath: string): Promise<UsageSlice[]> {
-  const content = await readFile(filePath, "utf8")
-
+function parseCodexRollout(content: string): ParsedCodexRollout | null {
   let sessionMeta: CodexSessionLine | null = null
   let turnContextModel: string | null = null
   let lastTotal: CodexTokenUsage | null = null
@@ -116,87 +127,225 @@ async function readCodexJsonl(filePath: string): Promise<UsageSlice[]> {
 
   const provider = sessionMeta?.payload?.model_provider
   const model =
-    sessionMeta?.payload?.model ?? turnContextModel ?? (provider ? inferDefaultModel(provider) : null)
-  if (!sessionMeta || !provider || !model) return []
+    sessionMeta?.payload?.model ??
+    turnContextModel ??
+    (provider ? inferDefaultModel(provider) : null)
+  if (!sessionMeta || !provider || !model) return null
 
-  const normalized = normalizeModelKey(provider, model)
-  const inputRaw = lastTotal?.input_tokens ?? 0
-  const cached = lastTotal?.cached_input_tokens ?? 0
-  const output = lastTotal?.output_tokens ?? 0
-  const newInput = Math.max(0, inputRaw - cached)
+  return {
+    sessionId: sessionMeta.payload?.id ?? null,
+    timestamp: sessionMeta.timestamp,
+    provider,
+    model,
+    usage: lastTotal,
+  }
+}
+
+function readCodexRolloutSync(filePath: string): ParsedCodexRollout | null {
+  if (!existsSync(filePath)) return null
+  try {
+    return parseCodexRollout(readFileSync(filePath, "utf8"))
+  } catch {
+    return null
+  }
+}
+
+function splitCodexUsage(
+  usage: CodexTokenUsage | null,
+  totalOverride: number | null = null
+): Pick<
+  UsageSlice,
+  "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens"
+> {
+  if (!usage) {
+    return {
+      inputTokens: totalOverride && totalOverride > 0 ? totalOverride : null,
+      outputTokens: null,
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
+    }
+  }
+
+  const inputRaw = usage.input_tokens ?? 0
+  const cached = usage.cached_input_tokens ?? 0
+  const output = usage.output_tokens ?? 0
+  const observedTotal = inputRaw + output
+
+  if (
+    totalOverride &&
+    totalOverride > 0 &&
+    observedTotal > 0 &&
+    totalOverride !== observedTotal
+  ) {
+    const ratio = totalOverride / observedTotal
+    const scaledInputRaw = Math.max(0, Math.round(inputRaw * ratio))
+    const scaledCacheRead = Math.min(
+      scaledInputRaw,
+      Math.max(0, Math.round(cached * ratio))
+    )
+    return {
+      inputTokens: Math.max(0, scaledInputRaw - scaledCacheRead),
+      outputTokens: Math.max(0, totalOverride - scaledInputRaw),
+      cacheReadTokens: scaledCacheRead,
+      cacheWriteTokens: null,
+    }
+  }
+
+  return {
+    inputTokens: Math.max(0, inputRaw - cached),
+    outputTokens: output,
+    cacheReadTokens: cached,
+    cacheWriteTokens: null,
+  }
+}
+
+async function readCodexJsonl(filePath: string): Promise<UsageSlice[]> {
+  const content = await readFile(filePath, "utf8")
+  const parsed = parseCodexRollout(content)
+  if (!parsed?.provider || !parsed.model) return []
+
+  const normalized = normalizeModelKey(parsed.provider, parsed.model)
+  const tokens = splitCodexUsage(parsed.usage)
 
   return [
     {
       source: "codex",
       provider: normalized.provider,
       model: normalized.model,
-      day: toDay(sessionMeta.timestamp),
-      startedAt: sessionMeta.timestamp ?? null,
-      inputTokens: lastTotal ? newInput : null,
-      outputTokens: lastTotal ? output : null,
-      cacheReadTokens: lastTotal ? cached : null,
-      cacheWriteTokens: null,
+      day: toDay(parsed.timestamp),
+      startedAt: parsed.timestamp ?? null,
+      ...tokens,
       exactCostUsd: null,
-      sourceSessionHash: hashSessionId(sessionMeta.payload?.id ?? filePath),
+      sourceSessionHash: hashSessionId(parsed.sessionId ?? filePath),
     },
   ]
 }
 
-function readCodexSqlite(filePath: string): UsageSlice[] {
+function totalTokens(row: UsageSlice): number {
+  return (
+    (row.inputTokens ?? 0) +
+    (row.outputTokens ?? 0) +
+    (row.cacheReadTokens ?? 0) +
+    (row.cacheWriteTokens ?? 0)
+  )
+}
+
+function readCodexSqlite(filePath: string): {
+  rows: UsageSlice[]
+  referencedRollouts: Set<string>
+} {
   const rows: UsageSlice[] = []
+  const referencedRollouts = new Set<string>()
   const db = new Database(filePath, { readonly: true })
 
   try {
     try {
-      for (const row of db.query("select id, model_provider, model, created_at, tokens_used from threads").all() as Array<
+      const columns = new Set(
+        (
+          db.query("pragma table_info(threads)").all() as Array<{
+            name?: string
+          }>
+        )
+          .map((column) => column.name)
+          .filter((name): name is string => typeof name === "string")
+      )
+
+      const hasRolloutPath = columns.has("rollout_path")
+      const hasCreatedAtMs = columns.has("created_at_ms")
+      const createdAtExpr = hasCreatedAtMs
+        ? "coalesce(nullif(created_at_ms, 0), created_at) as created_at"
+        : "created_at"
+      const query = `select id, ${hasRolloutPath ? "rollout_path" : "null as rollout_path"}, model_provider, model, ${createdAtExpr}, tokens_used from threads`
+
+      for (const row of db.query(query).all() as Array<
         Record<string, string | number | null>
       >) {
         const id = row.id
+        const rolloutPath = row.rollout_path
         const provider = row.model_provider
         const rawModel = row.model
         const createdAt = row.created_at
-        if (typeof provider !== "string") continue
-        const model = typeof rawModel === "string" && rawModel.length > 0 ? rawModel : inferDefaultModel(provider)
+        const tokensUsed =
+          typeof row.tokens_used === "number" ? row.tokens_used : 0
+        const parsedRollout =
+          typeof rolloutPath === "string" && rolloutPath.length > 0
+            ? readCodexRolloutSync(rolloutPath)
+            : null
+
+        if (typeof rolloutPath === "string" && rolloutPath.length > 0)
+          referencedRollouts.add(resolve(rolloutPath))
+
+        const effectiveProvider =
+          typeof provider === "string" && provider.length > 0
+            ? provider
+            : parsedRollout?.provider
+        if (!effectiveProvider) continue
+
+        const model =
+          typeof rawModel === "string" && rawModel.length > 0
+            ? rawModel
+            : (parsedRollout?.model ?? inferDefaultModel(effectiveProvider))
         if (!model) continue
-        const normalized = normalizeModelKey(provider, model)
+
+        const normalized = normalizeModelKey(effectiveProvider, model)
+        const tokens = splitCodexUsage(
+          parsedRollout?.usage ?? null,
+          tokensUsed > 0 ? tokensUsed : null
+        )
+        const startedAt =
+          typeof createdAt === "number"
+            ? new Date(toTimestampMs(createdAt)).toISOString()
+            : (parsedRollout?.timestamp ?? null)
+
         rows.push({
           source: "codex",
           provider: normalized.provider,
           model: normalized.model,
-          day: toDay(createdAt ?? undefined),
-          startedAt: typeof createdAt === "number" ? new Date(toTimestampMs(createdAt)).toISOString() : null,
-          inputTokens: null,
-          outputTokens: null,
-          cacheReadTokens: null,
-          cacheWriteTokens: null,
+          day: toDay(createdAt ?? parsedRollout?.timestamp ?? undefined),
+          startedAt,
+          ...tokens,
           exactCostUsd: null,
-          sourceSessionHash: hashSessionId(typeof id === "string" ? id : `${filePath}:${provider}:${model}`),
+          sourceSessionHash: hashSessionId(
+            typeof id === "string" ? id : `${filePath}:${provider}:${model}`
+          ),
         })
       }
     } catch {
-      return rows
+      return { rows, referencedRollouts }
     }
   } finally {
     db.close()
   }
 
-  return rows
+  return { rows, referencedRollouts }
 }
 
-export async function readCodexUsage(targetPath: string): Promise<UsageSlice[]> {
+export async function readCodexUsage(
+  targetPath: string
+): Promise<UsageSlice[]> {
   const targets = await collectCodexTargets(targetPath)
-  const rows: UsageSlice[] = []
+  const sqliteRows = new Map<string, UsageSlice>()
+  const jsonlRows: UsageSlice[] = []
+  const referencedRollouts = new Set<string>()
 
-  for (const target of targets) {
-    if (target.endsWith(".jsonl")) {
-      rows.push(...(await readCodexJsonl(target)))
-      continue
-    }
-
-    if (target.endsWith(".sqlite") || target.endsWith(".db")) {
-      rows.push(...readCodexSqlite(target))
+  for (const target of targets.filter(
+    (t) => t.endsWith(".sqlite") || t.endsWith(".db")
+  )) {
+    const result = readCodexSqlite(target)
+    for (const rollout of result.referencedRollouts)
+      referencedRollouts.add(rollout)
+    for (const row of result.rows) {
+      const existing = sqliteRows.get(row.sourceSessionHash)
+      if (!existing || totalTokens(row) > totalTokens(existing)) {
+        sqliteRows.set(row.sourceSessionHash, row)
+      }
     }
   }
 
-  return rows
+  for (const target of targets.filter((t) => t.endsWith(".jsonl"))) {
+    if (referencedRollouts.has(resolve(target))) continue
+    jsonlRows.push(...(await readCodexJsonl(target)))
+  }
+
+  return [...sqliteRows.values(), ...jsonlRows]
 }
