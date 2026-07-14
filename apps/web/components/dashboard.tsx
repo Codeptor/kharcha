@@ -16,6 +16,8 @@ import {
 } from "@/lib/dashboard/stats"
 import {
   type Currency,
+  CURRENCY_RATES,
+  type CurrencyRates,
   formatCompact,
   formatFull,
 } from "@/lib/dashboard/currency"
@@ -42,6 +44,15 @@ import {
 
 type Range = "7d" | "30d" | "all"
 type View = "bars" | "heatmap" | "stats"
+
+type StoredUsdInrRate = {
+  date: string
+  rate: number
+  asOf: string
+  source: string
+}
+
+const USD_INR_RATE_CACHE_KEY = "kharcha:fx:usd-inr"
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}b`
@@ -71,6 +82,46 @@ function fmtDate(iso: string) {
           ? "rd"
           : "th"
   return `${month} ${day}${s}`
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function isValidUsdInrRate(rate: unknown): rate is number {
+  return (
+    typeof rate === "number" && Number.isFinite(rate) && rate > 50 && rate < 150
+  )
+}
+
+function readStoredUsdInrRate(): StoredUsdInrRate | null {
+  if (typeof localStorage === "undefined") return null
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(USD_INR_RATE_CACHE_KEY) ?? "null"
+    ) as Partial<StoredUsdInrRate> | null
+    if (
+      parsed?.date === todayKey() &&
+      isValidUsdInrRate(parsed.rate) &&
+      typeof parsed.asOf === "string" &&
+      typeof parsed.source === "string"
+    ) {
+      return {
+        date: parsed.date,
+        rate: parsed.rate,
+        asOf: parsed.asOf,
+        source: parsed.source,
+      }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function initialCurrencyRates(): CurrencyRates {
+  const cached = readStoredUsdInrRate()
+  return cached ? { ...CURRENCY_RATES, INR: cached.rate } : CURRENCY_RATES
 }
 
 function displayModel(label: string) {
@@ -186,6 +237,11 @@ export function Dashboard({ data }: { data: DashboardData }) {
   const [muted, setMuted] = useState(false)
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set())
   const [currency, setCurrency] = useState<Currency>("USD")
+  const [currencyRates, setCurrencyRates] =
+    useState<CurrencyRates>(initialCurrencyRates)
+  const [usdInrRate, setUsdInrRate] = useState<StoredUsdInrRate | null>(
+    readStoredUsdInrRate
+  )
   useEffect(() => {
     const stored = localStorage.getItem("currency")
     if (stored === "USD" || stored === "INR") setCurrency(stored)
@@ -193,10 +249,42 @@ export function Dashboard({ data }: { data: DashboardData }) {
   useEffect(() => {
     localStorage.setItem("currency", currency)
   }, [currency])
-  const fmt = useCallback((v: number) => formatCompact(v, currency), [currency])
+  useEffect(() => {
+    if (usdInrRate?.date === todayKey()) return
+
+    let cancelled = false
+    fetch("/api/fx/usd-inr")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: unknown) => {
+        if (cancelled || !data || typeof data !== "object") return
+        const rate = (data as { rate?: unknown }).rate
+        const asOf = (data as { asOf?: unknown }).asOf
+        const source = (data as { source?: unknown }).source
+        if (
+          !isValidUsdInrRate(rate) ||
+          typeof asOf !== "string" ||
+          typeof source !== "string"
+        ) {
+          return
+        }
+        const next = { date: todayKey(), rate, asOf, source }
+        localStorage.setItem(USD_INR_RATE_CACHE_KEY, JSON.stringify(next))
+        setUsdInrRate(next)
+        setCurrencyRates({ ...CURRENCY_RATES, INR: rate })
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [usdInrRate])
+  const fmt = useCallback(
+    (v: number) => formatCompact(v, currency, currencyRates),
+    [currency, currencyRates]
+  )
   const fmtFull = useCallback(
-    (v: number) => formatFull(v, currency),
-    [currency]
+    (v: number) => formatFull(v, currency, currencyRates),
+    [currency, currencyRates]
   )
   const barsRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -564,7 +652,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
                 setCurrency((c) => (c === "USD" ? "INR" : "USD"))
               }}
               className="font-mono text-[10px] text-stone-400 transition-colors hover:text-stone-600 dark:text-stone-600 dark:hover:text-stone-400"
-              title={`switch to ${currency === "USD" ? "INR" : "USD"}`}
+              title={`switch to ${currency === "USD" ? "INR" : "USD"} · USD/INR ${currencyRates.INR.toFixed(2)}${usdInrRate ? ` · ${usdInrRate.source}` : ""}`}
             >
               {currency === "USD" ? "$" : "₹"}
             </button>
