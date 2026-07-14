@@ -70,7 +70,7 @@ export function StatsPanel({
 
   return (
     <div className="flex min-h-0 flex-col gap-3 sm:gap-4">
-      <div className="grid grid-cols-4 gap-2 text-center">
+      <div className="grid grid-cols-4 gap-1.5 text-center min-[380px]:gap-2">
         <Stat label="tokens" value={fmtTokens(metrics.totalTokens)} />
         <Stat
           label="priced"
@@ -90,7 +90,7 @@ export function StatsPanel({
         />
       </div>
 
-      <div className="grid grid-cols-4 gap-2 text-center">
+      <div className="grid grid-cols-4 gap-1.5 text-center min-[380px]:gap-2">
         <Stat label="current" value={`${streaks.current}d`} />
         <Stat label="longest" value={`${streaks.longest}d`} />
         <Stat
@@ -121,7 +121,7 @@ export function StatsPanel({
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-3">
         {metrics.modeStats.map((mode) => (
           <div
             key={mode.mode}
@@ -186,7 +186,7 @@ export function StatsPanel({
               className="w-24 border-b border-stone-300 bg-transparent px-1 py-0.5 font-mono text-[10px] text-stone-700 placeholder-stone-400 transition-colors outline-none focus:border-amber-500 sm:w-32 dark:border-stone-700 dark:text-stone-300 dark:placeholder-stone-600 dark:focus:border-amber-400"
             />
           </span>
-          <span className="flex shrink-0 gap-4 sm:gap-8">
+          <span className="hidden shrink-0 gap-3 min-[430px]:flex sm:gap-8">
             <span className="w-10 text-right sm:w-14">total</span>
             <span className="w-10 text-right sm:w-14">tokens</span>
             <span className="w-12 text-right sm:w-16">$/mtok</span>
@@ -205,7 +205,7 @@ export function StatsPanel({
                   e.stopPropagation()
                   onSelectModel(m.key)
                 }}
-                className={`flex items-center gap-2 px-1 py-1 text-left transition-opacity sm:gap-3 ${
+                className={`flex flex-col gap-1 px-1 py-1.5 text-left transition-opacity min-[430px]:flex-row min-[430px]:items-center min-[430px]:gap-2 min-[430px]:py-1 sm:gap-3 ${
                   dimmed
                     ? "opacity-30 hover:opacity-60"
                     : selected
@@ -213,29 +213,45 @@ export function StatsPanel({
                       : "hover:bg-stone-200/40 dark:hover:bg-stone-800/40"
                 }`}
               >
-                <span className="inline-flex w-4 shrink-0 justify-center">
-                  <ProviderIcon name={m.provider} size={11} />
+                <span className="flex w-full min-w-0 items-center gap-2 min-[430px]:w-auto min-[430px]:flex-1">
+                  <span className="inline-flex w-4 shrink-0 justify-center">
+                    <ProviderIcon name={m.provider} size={11} />
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-[11px] text-stone-700 sm:text-[13px] dark:text-stone-300"
+                    style={{ fontFamily: "var(--font-display)" }}
+                  >
+                    {displayModel(m.label)}
+                  </span>
                 </span>
-                <span
-                  className="min-w-0 flex-1 truncate text-[11px] text-stone-700 sm:text-[13px] dark:text-stone-300"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
-                  {displayModel(m.label)}
-                </span>
-                <span className="flex shrink-0 gap-4 font-mono text-[10px] text-stone-500 tabular-nums sm:gap-8 sm:text-[12px] dark:text-stone-400">
-                  <span className="w-10 text-right sm:w-14">
-                    {fmt(m.costUsd)}
+                <span className="grid w-full grid-cols-4 gap-2 pl-6 font-mono text-[10px] text-stone-500 tabular-nums min-[430px]:flex min-[430px]:w-auto min-[430px]:shrink-0 min-[430px]:gap-3 min-[430px]:pl-0 sm:gap-8 sm:text-[12px] dark:text-stone-400">
+                  <span className="min-w-0 min-[430px]:w-10 min-[430px]:text-right sm:w-14">
+                    <span>{fmt(m.costUsd)}</span>
+                    <span className="mt-0.5 block text-[8px] text-stone-400 min-[430px]:hidden dark:text-stone-600">
+                      total
+                    </span>
                   </span>
-                  <span className="w-10 text-right sm:w-14">
-                    {fmtTokens(m.totalTokens)}
+                  <span className="min-w-0 min-[430px]:w-10 min-[430px]:text-right sm:w-14">
+                    <span>{fmtTokens(m.totalTokens)}</span>
+                    <span className="mt-0.5 block text-[8px] text-stone-400 min-[430px]:hidden dark:text-stone-600">
+                      tokens
+                    </span>
                   </span>
-                  <span className="w-12 text-right sm:w-16">
-                    {m.costPerMillionTokens === null
-                      ? "n/a"
-                      : fmt(m.costPerMillionTokens)}
+                  <span className="min-w-0 min-[430px]:w-12 min-[430px]:text-right sm:w-16">
+                    <span>
+                      {m.costPerMillionTokens === null
+                        ? "n/a"
+                        : fmt(m.costPerMillionTokens)}
+                    </span>
+                    <span className="mt-0.5 block text-[8px] text-stone-400 min-[430px]:hidden dark:text-stone-600">
+                      /mtok
+                    </span>
                   </span>
-                  <span className="w-10 text-right sm:w-12">
-                    {(m.share * 100).toFixed(1)}%
+                  <span className="min-w-0 min-[430px]:w-10 min-[430px]:text-right sm:w-12">
+                    <span>{(m.share * 100).toFixed(1)}%</span>
+                    <span className="mt-0.5 block text-[8px] text-stone-400 min-[430px]:hidden dark:text-stone-600">
+                      share
+                    </span>
                   </span>
                 </span>
               </button>
@@ -268,12 +284,12 @@ function Stat({
   return (
     <div className="flex flex-col gap-0.5">
       <span
-        className="text-lg tracking-tight text-stone-800 sm:text-xl dark:text-stone-100"
+        className="text-base tracking-tight text-stone-800 min-[380px]:text-lg sm:text-xl dark:text-stone-100"
         style={{ fontFamily: "var(--font-display)" }}
       >
         {value}
       </span>
-      <span className="font-mono text-[9px] text-stone-400 sm:text-[10px] dark:text-stone-600">
+      <span className="font-mono text-[8px] text-stone-400 min-[380px]:text-[9px] sm:text-[10px] dark:text-stone-600">
         {label}
         {sub ? ` · ${sub}` : ""}
       </span>

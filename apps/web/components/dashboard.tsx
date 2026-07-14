@@ -563,7 +563,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
       tabIndex={0}
     >
       {/* Header */}
-      <header className="fixed inset-x-0 top-0 z-50 animate-in px-4 pt-4 pb-2 duration-500 fill-mode-both fade-in slide-in-from-top-2 sm:px-6 sm:pt-[30px] sm:pb-3">
+      <header className="fixed inset-x-0 top-0 z-50 animate-in px-3 pt-4 pb-2 duration-500 fill-mode-both fade-in slide-in-from-top-2 min-[380px]:px-4 sm:px-6 sm:pt-[30px] sm:pb-3">
         <div className="mx-auto flex max-w-[1178px] items-center justify-between gap-2 sm:gap-4">
           {/* Range + view pills */}
           <div className="flex min-w-0 items-center gap-2 sm:gap-4">
@@ -571,6 +571,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               {(["7d", "30d", "all"] as const).map((r) => (
                 <button
                   key={r}
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     toggleVibrate()
@@ -595,6 +596,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               {(["bars", "heatmap", "stats"] as const).map((v) => (
                 <button
                   key={v}
+                  type="button"
                   aria-label={v}
                   onClick={(e) => {
                     e.stopPropagation()
@@ -646,6 +648,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               </span>
             )}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation()
                 toggleVibrate()
@@ -657,6 +660,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               {currency === "USD" ? "$" : "₹"}
             </button>
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation()
                 setMuted((m) => !m)
@@ -667,6 +671,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
               {muted ? <VolumeOff size={12} /> : <Volume2 size={12} />}
             </button>
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation()
                 toggleVibrate()
@@ -676,7 +681,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
             >
               {resolvedTheme === "dark" ? "light" : "dark"}
             </button>
-            <div className="min-w-0 text-right">
+            <div className="min-w-0 text-right max-[360px]:hidden">
               <div
                 className="flex items-baseline justify-end gap-1.5 text-sm tracking-tight text-stone-800 dark:text-stone-100"
                 style={{ fontFamily: "var(--font-display)" }}
@@ -710,10 +715,16 @@ export function Dashboard({ data }: { data: DashboardData }) {
       </header>
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col items-center justify-center px-4 pt-12 pb-20 sm:px-8 sm:pt-0 sm:pb-0 lg:px-24">
+      <div
+        className={`flex flex-1 flex-col items-center px-4 sm:px-8 sm:pt-0 sm:pb-0 lg:px-24 ${
+          view === "stats"
+            ? "justify-start pt-16 pb-5 sm:justify-center"
+            : "justify-center pt-12 pb-20"
+        }`}
+      >
         {/* Meta line — mobile fallback (header has it on md+) */}
         <div
-          className="mb-3 flex animate-in gap-3 font-mono text-[10px] text-stone-400 duration-700 fill-mode-both fade-in sm:mb-5 sm:gap-4 sm:text-[11px] md:hidden dark:text-stone-600"
+          className="mb-3 flex animate-in flex-wrap justify-center gap-x-2 gap-y-1 font-mono text-[10px] text-stone-400 duration-700 fill-mode-both fade-in min-[380px]:gap-x-3 sm:mb-5 sm:gap-x-4 sm:text-[11px] md:hidden dark:text-stone-600"
           style={{ animationDelay: "200ms" }}
         >
           <span>{filteredDays.filter((d) => d.total > 0).length} days</span>
@@ -729,9 +740,9 @@ export function Dashboard({ data }: { data: DashboardData }) {
         {view === "stats" ? (
           <div
             key="view-stats"
-            className="no-scrollbar grid h-[calc(100dvh-9.5rem)] min-h-0 w-full max-w-[1200px] animate-in grid-cols-1 gap-4 overflow-y-auto duration-300 fill-mode-both fade-in slide-in-from-bottom-1 sm:h-[calc(100dvh-8rem)] lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)] lg:gap-8 lg:overflow-hidden"
+            className="no-scrollbar grid h-[calc(100dvh-8rem)] min-h-0 w-full max-w-[1200px] animate-in grid-cols-1 content-start gap-3 overflow-y-auto px-0.5 pb-2 duration-300 fill-mode-both fade-in slide-in-from-bottom-1 sm:h-[calc(100dvh-8rem)] sm:gap-4 sm:px-0 sm:pb-0 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)] lg:gap-8 lg:overflow-hidden"
           >
-            <div className="min-h-0 pr-1 lg:overflow-y-auto">
+            <div className="pr-1 lg:min-h-0 lg:overflow-y-auto">
               <StatsPanel
                 streaks={streaks}
                 modelStats={modelStats}
@@ -746,7 +757,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
                 fmtTokens={fmtTokens}
               />
             </div>
-            <div className="flex min-h-0 flex-col gap-4 pr-1 sm:gap-5 lg:overflow-y-auto">
+            <div className="flex flex-col gap-4 pr-1 sm:gap-5 lg:min-h-0 lg:overflow-y-auto">
               <div className="grid grid-cols-2 gap-x-5 gap-y-2 font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
                 <Metric label="sources" value={uniqueSources.toString()} />
                 <Metric label="models" value={uniqueModels.toString()} />
@@ -967,7 +978,9 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
       {/* Footer: provider breakdown */}
       <footer
-        className="fixed inset-x-0 bottom-0 animate-in px-4 pt-2 pb-4 duration-500 fill-mode-both fade-in slide-in-from-bottom-2 sm:pt-3 sm:pb-6"
+        className={`fixed inset-x-0 bottom-0 animate-in px-4 pt-2 pb-4 duration-500 fill-mode-both fade-in slide-in-from-bottom-2 sm:pt-3 sm:pb-6 ${
+          view === "stats" ? "hidden sm:block" : ""
+        }`}
         style={{ animationDelay: "800ms" }}
       >
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 sm:gap-x-4">
