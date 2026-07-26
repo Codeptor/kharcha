@@ -7,6 +7,7 @@
       "devDependencies": {
         "@workspace/eslint-config": "workspace:*",
         "@workspace/typescript-config": "workspace:*",
+        "ccusage": "20.0.18",
         "drizzle-kit": "^0.31.4",
         "prettier": "^3.8.1",
         "prettier-plugin-tailwindcss": "^0.7.2",
@@ -200,6 +201,18 @@
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
 
     "@capsizecss/unpack": ["@capsizecss/unpack@4.0.0", "", { "dependencies": { "fontkitten": "^1.0.0" } }, "sha512-VERIM64vtTP1C4mxQ5thVT9fK0apjPFobqybMtA1UdUujWka24ERHbRHFGmpbbhp73MhV+KSsHQH9C6uOTdEQA=="],
+
+    "@ccusage/ccusage-darwin-arm64": ["@ccusage/ccusage-darwin-arm64@20.0.18", "", { "os": "darwin", "cpu": "arm64" }, "sha512-3Uv3ED3RyepxNyYYU/BGqfzsL+yWkzxb9gETDLn6DR1umMmoLBLz2bzOfHe1tFXpDEBcx75cj70P4Mq4WEJ/Kg=="],
+
+    "@ccusage/ccusage-darwin-x64": ["@ccusage/ccusage-darwin-x64@20.0.18", "", { "os": "darwin", "cpu": "x64" }, "sha512-Y2NWvCsRkhbakBj0Pn9NReQnaJfsGEQRV+q4moUuVAHe2Hh40IwBjCMv5NVECHNU1TJT73WIxHpfC3mcIDL3Pw=="],
+
+    "@ccusage/ccusage-linux-arm64": ["@ccusage/ccusage-linux-arm64@20.0.18", "", { "os": "linux", "cpu": "arm64" }, "sha512-55gGCy13tLmPV9sxRBHP5Jf6o/1hrIF4KUk/0BoawSrOPbSOQZG+8qGXTILNxrOZ4YLmPB2srTMd2vq+6K+LcA=="],
+
+    "@ccusage/ccusage-linux-x64": ["@ccusage/ccusage-linux-x64@20.0.18", "", { "os": "linux", "cpu": "x64" }, "sha512-3bF4ZY/JFRc/kZTagriV4Mr1kmItzMM4kZHd+S3eD8Yg7KI2X4j+0n4TMO8yqgJ6aDwdj0QvhSTW7qcp0rXdCw=="],
+
+    "@ccusage/ccusage-win32-arm64": ["@ccusage/ccusage-win32-arm64@20.0.18", "", { "os": "win32", "cpu": "arm64" }, "sha512-Iaxx9Td97M2cVrMpGRrSPTdtpFzw/Ku+lpRYlYlbnFM3AdQ+wlD3xzaYsQ+OdlmPS2DSgHzt3Cob4fgIhvHpbA=="],
+
+    "@ccusage/ccusage-win32-x64": ["@ccusage/ccusage-win32-x64@20.0.18", "", { "os": "win32", "cpu": "x64" }, "sha512-2DaCLgoVsVfxijdrOupR3+x4tbPJTmdIcIVyxkzMRJAa5U6dIWzc/WBtaDruir/CfTrwyZvj1CPdfKVTKDoCDA=="],
 
     "@clack/core": ["@clack/core@1.2.0", "", { "dependencies": { "fast-wrap-ansi": "^0.1.3", "sisteransi": "^1.0.5" } }, "sha512-qfxof/3T3t9DPU/Rj3OmcFyZInceqj/NVtO9rwIuJqCUgh32gwPjpFQQp/ben07qKlhpwq7GzfWpST4qdJ5Drg=="],
 
@@ -906,6 +919,8 @@
     "caniuse-lite": ["caniuse-lite@1.0.30001780", "", {}, "sha512-llngX0E7nQci5BPJDqoZSbuZ5Bcs9F5db7EtgfwBerX9XGtkkiO4NwfDDIRzHTTwcYC8vC7bmeUEPGrKlR/TkQ=="],
 
     "ccount": ["ccount@2.0.1", "", {}, "sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg=="],
+
+    "ccusage": ["ccusage@20.0.18", "", { "optionalDependencies": { "@ccusage/ccusage-darwin-arm64": "20.0.18", "@ccusage/ccusage-darwin-x64": "20.0.18", "@ccusage/ccusage-linux-arm64": "20.0.18", "@ccusage/ccusage-linux-x64": "20.0.18", "@ccusage/ccusage-win32-arm64": "20.0.18", "@ccusage/ccusage-win32-x64": "20.0.18" }, "bin": { "ccusage": "./src/cli.js" } }, "sha512-/81kwSZg487xoHQadEdcP4hqw9GICkaPtVjSM1HHJ4nBplUByX9tSZF7YIaQQWMcWZ5Gzt0cD2yDEFrgcAkrZg=="],
 
     "chalk": ["chalk@4.1.2", "", { "dependencies": { "ansi-styles": "^4.1.0", "supports-color": "^7.1.0" } }, "sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA=="],
 
