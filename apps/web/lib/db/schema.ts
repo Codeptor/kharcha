@@ -24,6 +24,7 @@ export const usageRows = pgTable(
     outputTokens: bigint("output_tokens", { mode: "number" }),
     cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }),
     cacheWriteTokens: bigint("cache_write_tokens", { mode: "number" }),
+    aggregateTokens: bigint("aggregate_tokens", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

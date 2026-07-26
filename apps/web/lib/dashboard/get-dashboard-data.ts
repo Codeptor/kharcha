@@ -18,6 +18,7 @@ export async function getDashboardData() {
         outputTokens: usageRows.outputTokens,
         cacheReadTokens: usageRows.cacheReadTokens,
         cacheWriteTokens: usageRows.cacheWriteTokens,
+        aggregateTokens: usageRows.aggregateTokens,
         createdAt: usageRows.createdAt,
       })
       .from(usageRows)
@@ -39,6 +40,7 @@ export async function getDashboardData() {
         output: sql<string>`coalesce(sum(${usageRows.outputTokens}),0)`,
         cacheRead: sql<string>`coalesce(sum(${usageRows.cacheReadTokens}),0)`,
         cacheWrite: sql<string>`coalesce(sum(${usageRows.cacheWriteTokens}),0)`,
+        aggregate: sql<string>`coalesce(sum(${usageRows.aggregateTokens}),0)`,
       })
       .from(usageRows),
   ])
@@ -57,6 +59,7 @@ export async function getDashboardData() {
       output: Number(totals?.output ?? 0),
       cacheRead: Number(totals?.cacheRead ?? 0),
       cacheWrite: Number(totals?.cacheWrite ?? 0),
+      aggregate: Number(totals?.aggregate ?? 0),
     },
   }
 }

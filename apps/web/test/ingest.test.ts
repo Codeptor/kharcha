@@ -1,15 +1,34 @@
 import { describe, expect, it } from "bun:test"
-import { getAffectedDays, parseSyncBatch, rollupRowsByDay } from "@/lib/db/ingest"
+import {
+  getAffectedDays,
+  parseSyncBatch,
+  rollupRowsByDay,
+} from "@/lib/db/ingest"
 
 describe("rollupRowsByDay", () => {
   it("groups costs by day, provider, and model", () => {
     const rows = [
-      { day: "2026-03-20", provider: "anthropic", model: "claude-opus-4-6", costUsd: 1.2 },
-      { day: "2026-03-20", provider: "anthropic", model: "claude-opus-4-6", costUsd: 0.3 },
+      {
+        day: "2026-03-20",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        costUsd: 1.2,
+      },
+      {
+        day: "2026-03-20",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        costUsd: 0.3,
+      },
     ]
 
     expect(rollupRowsByDay(rows)).toEqual([
-      { day: "2026-03-20", provider: "anthropic", model: "claude-opus-4-6", costUsd: 1.5 },
+      {
+        day: "2026-03-20",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        costUsd: 1.5,
+      },
     ])
   })
 })
@@ -42,7 +61,7 @@ describe("parseSyncBatch", () => {
             pricingSnapshotKey: null,
           },
         ],
-      }),
+      })
     ).toEqual({
       generatedAt: "2026-03-20T00:00:00.000Z",
       pricingSnapshots: [
@@ -70,6 +89,7 @@ describe("parseSyncBatch", () => {
           outputTokens: null,
           cacheReadTokens: null,
           cacheWriteTokens: null,
+          aggregateTokens: null,
         },
       ],
       hourBuckets: [],
@@ -84,7 +104,7 @@ describe("getAffectedDays", () => {
         { day: "2026-03-21" },
         { day: "2026-03-20" },
         { day: "2026-03-21" },
-      ]),
+      ])
     ).toEqual(["2026-03-20", "2026-03-21"])
   })
 })

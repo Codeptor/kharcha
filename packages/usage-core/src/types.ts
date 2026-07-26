@@ -22,6 +22,7 @@ export type UsageSlice = {
   outputTokens: number | null
   cacheReadTokens: number | null
   cacheWriteTokens: number | null
+  aggregateTokens?: number | null
   exactCostUsd: number | null
   preventEstimatedCost?: boolean
   sourceSessionHash: string

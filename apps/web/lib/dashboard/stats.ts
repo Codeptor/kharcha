@@ -65,7 +65,7 @@ export type UsageMetrics = TokenTotals & {
 const MODE_ORDER: PricingMode[] = ["exact", "estimated", "unpriced"]
 
 function emptyTokens(): TokenTotals {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, aggregate: 0 }
 }
 
 function addTokens(target: TokenTotals, source: TokenTotals) {
@@ -73,10 +73,17 @@ function addTokens(target: TokenTotals, source: TokenTotals) {
   target.output += source.output
   target.cacheRead += source.cacheRead
   target.cacheWrite += source.cacheWrite
+  target.aggregate += source.aggregate
 }
 
 function totalTokens(tokens: TokenTotals): number {
-  return tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite
+  return (
+    tokens.input +
+    tokens.output +
+    tokens.cacheRead +
+    tokens.cacheWrite +
+    tokens.aggregate
+  )
 }
 
 function costPerMillion(costUsd: number, tokens: number): number | null {
@@ -146,6 +153,7 @@ export function computeModelStats(days: DashboardData["days"]): ModelStat[] {
         output: 0,
         cacheRead: 0,
         cacheWrite: 0,
+        aggregate: 0,
         totalTokens: 0,
         exactCostUsd: 0,
         estimatedCostUsd: 0,
@@ -204,6 +212,7 @@ export function computeUsageMetrics(days: DashboardData["days"]): UsageMetrics {
     output: 0,
     cacheRead: 0,
     cacheWrite: 0,
+    aggregate: 0,
     totalTokens: 0,
     directTokens: 0,
     cacheTokens: 0,

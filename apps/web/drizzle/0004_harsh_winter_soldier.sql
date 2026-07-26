@@ -1,0 +1,1 @@
+ALTER TABLE "usage_rows" ADD COLUMN "aggregate_tokens" bigint;

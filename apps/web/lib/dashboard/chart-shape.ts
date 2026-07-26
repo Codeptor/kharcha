@@ -9,6 +9,7 @@ type InputRow = {
   outputTokens: number | null
   cacheReadTokens: number | null
   cacheWriteTokens: number | null
+  aggregateTokens?: number | null
   createdAt: Date | null
 }
 
@@ -19,6 +20,7 @@ export type TokenTotals = {
   output: number
   cacheRead: number
   cacheWrite: number
+  aggregate: number
 }
 
 export type PricingModeTotal = TokenTotals & {
@@ -80,11 +82,17 @@ type MutableChartSegment = Omit<ChartSegment, "modeTotals" | "sourceTotals"> & {
 const MODE_ORDER: PricingMode[] = ["exact", "estimated", "unpriced"]
 
 function emptyTokens(): TokenTotals {
-  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, aggregate: 0 }
 }
 
 function tokenCount(tokens: TokenTotals): number {
-  return tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite
+  return (
+    tokens.input +
+    tokens.output +
+    tokens.cacheRead +
+    tokens.cacheWrite +
+    tokens.aggregate
+  )
 }
 
 function rowTokens(row: InputRow): TokenTotals {
@@ -93,6 +101,7 @@ function rowTokens(row: InputRow): TokenTotals {
     output: row.outputTokens ?? 0,
     cacheRead: row.cacheReadTokens ?? 0,
     cacheWrite: row.cacheWriteTokens ?? 0,
+    aggregate: row.aggregateTokens ?? 0,
   }
 }
 
@@ -101,6 +110,7 @@ function addTokens(target: TokenTotals, tokens: TokenTotals) {
   target.output += tokens.output
   target.cacheRead += tokens.cacheRead
   target.cacheWrite += tokens.cacheWrite
+  target.aggregate += tokens.aggregate
 }
 
 function modeSort(left: PricingModeTotal, right: PricingModeTotal): number {

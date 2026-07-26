@@ -71,10 +71,11 @@ describe("buildSyncBatch", () => {
           model: "codex-goal",
           day: "2026-03-20",
           startedAt: "2026-03-20T10:00:00.000Z",
-          inputTokens: 1_000_000,
+          inputTokens: null,
           outputTokens: null,
           cacheReadTokens: null,
           cacheWriteTokens: null,
+          aggregateTokens: 1_000_000,
           exactCostUsd: null,
           preventEstimatedCost: true,
           sourceSessionHash: "goal-123",
@@ -97,7 +98,8 @@ describe("buildSyncBatch", () => {
       costUsd: 0,
       pricingMode: "unpriced",
       pricingSnapshotKey: null,
-      inputTokens: 1_000_000,
+      inputTokens: null,
+      aggregateTokens: 1_000_000,
     })
   })
 })

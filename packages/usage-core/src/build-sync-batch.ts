@@ -18,6 +18,7 @@ export type SyncBatchRow = {
   outputTokens: number | null
   cacheReadTokens: number | null
   cacheWriteTokens: number | null
+  aggregateTokens: number | null
 }
 
 export type SyncPricingSnapshot = {
@@ -144,6 +145,7 @@ export async function buildSyncBatch(
         outputTokens: row.outputTokens ?? null,
         cacheReadTokens: row.cacheReadTokens ?? null,
         cacheWriteTokens: row.cacheWriteTokens ?? null,
+        aggregateTokens: row.aggregateTokens ?? null,
       })
     }
 

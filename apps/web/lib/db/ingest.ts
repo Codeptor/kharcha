@@ -1,7 +1,12 @@
 import { inArray, sql } from "drizzle-orm"
 
 import { db } from "./client"
-import { dailyRollups, hourOfDayBuckets, pricingSnapshots, usageRows } from "./schema"
+import {
+  dailyRollups,
+  hourOfDayBuckets,
+  pricingSnapshots,
+  usageRows,
+} from "./schema"
 
 type PricingMode = "exact" | "estimated" | "unpriced"
 
@@ -42,6 +47,7 @@ type SyncBatchRow = {
   outputTokens: number | null
   cacheReadTokens: number | null
   cacheWriteTokens: number | null
+  aggregateTokens: number | null
 }
 
 type SyncHourBucket = {
@@ -148,6 +154,7 @@ function parseBatchRow(value: unknown): SyncBatchRow | null {
     outputTokens: tok("outputTokens"),
     cacheReadTokens: tok("cacheReadTokens"),
     cacheWriteTokens: tok("cacheWriteTokens"),
+    aggregateTokens: tok("aggregateTokens"),
   }
 }
 
@@ -168,13 +175,20 @@ function parseHourBucket(value: unknown): SyncHourBucket | null {
 }
 
 export function parseSyncBatch(value: unknown): SyncBatch {
-  if (!isRecord(value) || !isString(value.generatedAt) || !Array.isArray(value.pricingSnapshots) || !Array.isArray(value.rows)) {
+  if (
+    !isRecord(value) ||
+    !isString(value.generatedAt) ||
+    !Array.isArray(value.pricingSnapshots) ||
+    !Array.isArray(value.rows)
+  ) {
     throw new Error("Invalid sync batch")
   }
 
   const pricingSnapshots = value.pricingSnapshots.map(parsePricingSnapshot)
   const rows = value.rows.map(parseBatchRow)
-  const hourBucketsRaw = Array.isArray(value.hourBuckets) ? value.hourBuckets : []
+  const hourBucketsRaw = Array.isArray(value.hourBuckets)
+    ? value.hourBuckets
+    : []
   const hourBuckets = hourBucketsRaw.map(parseHourBucket)
 
   if (
@@ -194,7 +208,9 @@ export function parseSyncBatch(value: unknown): SyncBatch {
 }
 
 export function getAffectedDays(rows: Array<{ day: string }>): string[] {
-  return [...new Set(rows.map((row) => row.day))].sort((left, right) => left.localeCompare(right))
+  return [...new Set(rows.map((row) => row.day))].sort((left, right) =>
+    left.localeCompare(right)
+  )
 }
 
 export function rollupRowsByDay(rows: RollupInput[]): RollupOutput[] {
@@ -246,11 +262,23 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
         .values(
           batch.pricingSnapshots.map((snapshot) => ({
             ...snapshot,
-            inputCost: snapshot.inputCost === null ? null : toDbNumber(snapshot.inputCost),
-            outputCost: snapshot.outputCost === null ? null : toDbNumber(snapshot.outputCost),
-            cacheReadCost: snapshot.cacheReadCost === null ? null : toDbNumber(snapshot.cacheReadCost),
-            cacheWriteCost: snapshot.cacheWriteCost === null ? null : toDbNumber(snapshot.cacheWriteCost),
-          })),
+            inputCost:
+              snapshot.inputCost === null
+                ? null
+                : toDbNumber(snapshot.inputCost),
+            outputCost:
+              snapshot.outputCost === null
+                ? null
+                : toDbNumber(snapshot.outputCost),
+            cacheReadCost:
+              snapshot.cacheReadCost === null
+                ? null
+                : toDbNumber(snapshot.cacheReadCost),
+            cacheWriteCost:
+              snapshot.cacheWriteCost === null
+                ? null
+                : toDbNumber(snapshot.cacheWriteCost),
+          }))
         )
         .onConflictDoNothing()
     }
@@ -262,7 +290,7 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
           batch.rows.map((row) => ({
             ...row,
             costUsd: toDbNumber(row.costUsd),
-          })),
+          }))
         )
         .onConflictDoUpdate({
           target: usageRows.dedupeKey,
@@ -274,6 +302,7 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
             outputTokens: sql`excluded.output_tokens`,
             cacheReadTokens: sql`excluded.cache_read_tokens`,
             cacheWriteTokens: sql`excluded.cache_write_tokens`,
+            aggregateTokens: sql`excluded.aggregate_tokens`,
             createdAt: sql`now()`,
           },
         })
@@ -297,7 +326,7 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
         provider: row.provider,
         model: row.model,
         costUsd: Number(row.costUsd),
-      })),
+      }))
     )
 
     if (rebuiltRollups.length > 0) {
@@ -307,7 +336,7 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
           rebuiltRollups.map((row) => ({
             ...row,
             costUsd: toDbNumber(row.costUsd),
-          })),
+          }))
         )
         .onConflictDoNothing()
     }
@@ -319,7 +348,7 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
           dayOfWeek: b.dayOfWeek,
           hour: b.hour,
           costUsd: toDbNumber(b.costUsd),
-        })),
+        }))
       )
     }
 

@@ -25,10 +25,11 @@ describe("computeUsageMetrics", () => {
         model: "fugu",
         costUsd: "0",
         pricingMode: "unpriced",
-        inputTokens: 500,
-        outputTokens: 100,
-        cacheReadTokens: 400,
+        inputTokens: null,
+        outputTokens: null,
+        cacheReadTokens: null,
         cacheWriteTokens: null,
+        aggregateTokens: 1000,
         createdAt: null,
       },
     ])
@@ -38,6 +39,8 @@ describe("computeUsageMetrics", () => {
     expect(metrics.totalTokens).toBe(5200)
     expect(metrics.pricedTokens).toBe(4200)
     expect(metrics.unpricedTokens).toBe(1000)
+    expect(metrics.aggregate).toBe(1000)
+    expect(metrics.input).toBe(1000)
     expect(metrics.pricedCoverage).toBeCloseTo(4200 / 5200, 6)
     expect(metrics.unpricedNonzeroRows).toBe(1)
     expect(metrics.modeStats.map((m) => m.mode)).toEqual([

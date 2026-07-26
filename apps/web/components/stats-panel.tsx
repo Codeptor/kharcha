@@ -106,6 +106,7 @@ export function StatsPanel({
         <Metric label="output" value={fmtTokens(metrics.output)} />
         <Metric label="cache read" value={fmtTokens(metrics.cacheRead)} />
         <Metric label="cache write" value={fmtTokens(metrics.cacheWrite)} />
+        <Metric label="total only" value={fmtTokens(metrics.aggregate)} />
         <Metric label="rows" value={metrics.rows.toLocaleString()} />
         <Metric
           label="token rows"
