@@ -23,5 +23,6 @@ export type UsageSlice = {
   cacheReadTokens: number | null
   cacheWriteTokens: number | null
   exactCostUsd: number | null
+  preventEstimatedCost?: boolean
   sourceSessionHash: string
 }

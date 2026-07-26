@@ -43,7 +43,11 @@ export type SyncBatch = {
   hourBuckets: SyncHourBucket[]
 }
 
-function hashSnapshot(provider: string, model: string, snapshot: PricingSnapshot): string {
+function hashSnapshot(
+  provider: string,
+  model: string,
+  snapshot: PricingSnapshot
+): string {
   return createHash("sha256")
     .update(
       [
@@ -53,35 +57,53 @@ function hashSnapshot(provider: string, model: string, snapshot: PricingSnapshot
         snapshot.outputCost ?? "",
         snapshot.cacheReadCost ?? "",
         snapshot.cacheWriteCost ?? "",
-      ].join(":"),
+      ].join(":")
     )
     .digest("hex")
 }
 
-export async function buildSyncBatch(rows: UsageSlice[], pricingLookup: SyncPricingLookup): Promise<SyncBatch> {
+export async function buildSyncBatch(
+  rows: UsageSlice[],
+  pricingLookup: SyncPricingLookup
+): Promise<SyncBatch> {
   const deduped = new Map<string, SyncBatchRow>()
   const snapshots = new Map<string, SyncPricingSnapshot>()
   const hourBuckets = new Map<string, SyncHourBucket>()
 
   for (const row of rows) {
     const normalized = normalizeModelKey(row.provider, row.model)
-    const pricingMatch = pricingLookup.get(`${normalized.provider}:${normalized.model}`) ?? null
-    const pricing = freezePricing({
-      exactCostUsd: row.exactCostUsd,
-      pricingMatch,
-      inputTokens: row.inputTokens,
-      outputTokens: row.outputTokens,
-      cacheReadTokens: row.cacheReadTokens,
-      cacheWriteTokens: row.cacheWriteTokens,
-    })
+    const pricingMatch =
+      pricingLookup.get(`${normalized.provider}:${normalized.model}`) ?? null
+    const pricing = row.preventEstimatedCost
+      ? { costUsd: 0, pricingMode: "unpriced" as const, snapshot: null }
+      : freezePricing({
+          exactCostUsd: row.exactCostUsd,
+          pricingMatch,
+          inputTokens: row.inputTokens,
+          outputTokens: row.outputTokens,
+          cacheReadTokens: row.cacheReadTokens,
+          cacheWriteTokens: row.cacheWriteTokens,
+        })
 
     const dedupeKey = createHash("sha256")
-      .update([row.source, row.sourceSessionHash, normalized.provider, normalized.model, row.day].join(":"))
+      .update(
+        [
+          row.source,
+          row.sourceSessionHash,
+          normalized.provider,
+          normalized.model,
+          row.day,
+        ].join(":")
+      )
       .digest("hex")
 
     let pricingSnapshotKey: string | null = null
     if (pricing.snapshot) {
-      pricingSnapshotKey = hashSnapshot(normalized.provider, normalized.model, pricing.snapshot)
+      pricingSnapshotKey = hashSnapshot(
+        normalized.provider,
+        normalized.model,
+        pricing.snapshot
+      )
       if (!snapshots.has(pricingSnapshotKey)) {
         snapshots.set(pricingSnapshotKey, {
           snapshotKey: pricingSnapshotKey,
@@ -131,8 +153,7 @@ export async function buildSyncBatch(rows: UsageSlice[], pricingLookup: SyncPric
         const dow = (ts.getUTCDay() + 6) % 7
         const hour = ts.getUTCHours()
         const k = `${dow}:${hour}`
-        const cur =
-          hourBuckets.get(k) ?? { dayOfWeek: dow, hour, costUsd: 0 }
+        const cur = hourBuckets.get(k) ?? { dayOfWeek: dow, hour, costUsd: 0 }
         cur.costUsd += pricing.costUsd
         hourBuckets.set(k, cur)
       }

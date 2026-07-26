@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
+import { createReadStream, existsSync, readFileSync } from "node:fs"
 import { readdir, readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
+import { createInterface } from "node:readline"
 import { Database } from "bun:sqlite"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
@@ -40,6 +41,19 @@ type ParsedCodexRollout = {
 type CodexGoalTokenUsage = {
   tokensUsed: number
   updatedAtMs: number
+}
+
+type CodexGoalUpdate = {
+  threadId: string
+  createdAt: number
+  updatedAt: number
+  tokensUsed: number
+}
+
+type CodexGoalUsageResult = {
+  rows: UsageSlice[]
+  coveredThreadIds: Set<string>
+  files: Set<string>
 }
 
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
@@ -101,6 +115,111 @@ function parseJsonlLine(line: string): CodexSessionLine | null {
   } catch {
     return null
   }
+}
+
+function parseCodexGoalUpdate(line: string): CodexGoalUpdate | null {
+  const parsed = parseJsonlLine(line)
+  if (parsed?.payload?.type !== "thread_goal_updated") return null
+
+  const goal = (parsed.payload as Record<string, unknown>).goal
+  if (!goal || typeof goal !== "object") return null
+  const value = goal as Record<string, unknown>
+  const threadId = value.threadId
+  const createdAt = value.createdAt
+  const updatedAt = value.updatedAt
+  const tokensUsed = value.tokensUsed
+  if (
+    typeof threadId !== "string" ||
+    typeof createdAt !== "number" ||
+    typeof updatedAt !== "number" ||
+    typeof tokensUsed !== "number" ||
+    tokensUsed < 0
+  ) {
+    return null
+  }
+
+  return { threadId, createdAt, updatedAt, tokensUsed }
+}
+
+async function readCodexGoalUsage(
+  files: string[]
+): Promise<CodexGoalUsageResult> {
+  const snapshotsByGoal = new Map<
+    number,
+    { threadIds: Set<string>; snapshots: Map<number, number> }
+  >()
+  const goalFiles = new Set<string>()
+
+  for (const filePath of files) {
+    let foundGoalUpdate = false
+    const lines = createInterface({
+      input: createReadStream(filePath, { encoding: "utf8" }),
+      crlfDelay: Infinity,
+    })
+    for await (const line of lines) {
+      if (!line.includes('"type":"thread_goal_updated"')) continue
+      const update = parseCodexGoalUpdate(line)
+      if (!update) continue
+
+      foundGoalUpdate = true
+      const group = snapshotsByGoal.get(update.createdAt) ?? {
+        threadIds: new Set<string>(),
+        snapshots: new Map<number, number>(),
+      }
+      group.threadIds.add(update.threadId)
+      group.snapshots.set(
+        update.updatedAt,
+        Math.max(group.snapshots.get(update.updatedAt) ?? 0, update.tokensUsed)
+      )
+      snapshotsByGoal.set(update.createdAt, group)
+    }
+    if (foundGoalUpdate) goalFiles.add(resolve(filePath))
+  }
+
+  const rows: UsageSlice[] = []
+  const coveredThreadIds = new Set<string>()
+  for (const [createdAt, group] of snapshotsByGoal) {
+    for (const threadId of group.threadIds) coveredThreadIds.add(threadId)
+
+    let previousTokens = 0
+    const daily = new Map<string, { tokens: number; startedAt: string }>()
+    for (const [updatedAt, tokensUsed] of [...group.snapshots].sort(
+      ([a], [b]) => a - b
+    )) {
+      const delta =
+        tokensUsed >= previousTokens ? tokensUsed - previousTokens : tokensUsed
+      previousTokens = tokensUsed
+      if (delta === 0) continue
+
+      const timestamp = new Date(toTimestampMs(updatedAt))
+      const day = toDay(updatedAt)
+      const current = daily.get(day) ?? {
+        tokens: 0,
+        startedAt: timestamp.toISOString(),
+      }
+      current.tokens += delta
+      daily.set(day, current)
+    }
+
+    for (const [day, value] of daily) {
+      rows.push({
+        source: "codex",
+        provider: "openai",
+        model: "codex-goal",
+        day,
+        startedAt: value.startedAt,
+        inputTokens: value.tokens,
+        outputTokens: null,
+        cacheReadTokens: null,
+        cacheWriteTokens: null,
+        exactCostUsd: null,
+        preventEstimatedCost: true,
+        sourceSessionHash: hashSessionId(`goal:${createdAt}`),
+      })
+    }
+  }
+
+  return { rows, coveredThreadIds, files: goalFiles }
 }
 
 function parseCodexRollout(content: string): ParsedCodexRollout | null {
@@ -274,6 +393,38 @@ function readCodexGoalTokenUsage(
   }
 }
 
+function collectCodexGoalRollouts(
+  filePath: string,
+  goalThreadIds: ReadonlySet<string>
+): Set<string> {
+  const rollouts = new Set<string>()
+  if (goalThreadIds.size === 0) return rollouts
+
+  const db = new Database(filePath, { readonly: true })
+  try {
+    for (const row of db
+      .query("select id, rollout_path from threads")
+      .all() as Array<Record<string, string | number | null>>) {
+      const id = row.id
+      const rolloutPath = row.rollout_path
+      if (
+        typeof id === "string" &&
+        goalThreadIds.has(id) &&
+        typeof rolloutPath === "string" &&
+        rolloutPath.length > 0
+      ) {
+        rollouts.add(resolve(rolloutPath))
+      }
+    }
+  } catch {
+    // This SQLite file has no Codex thread ledger.
+  } finally {
+    db.close()
+  }
+
+  return rollouts
+}
+
 function readCodexGoalDescendants(
   db: Database,
   goalThreadIds: ReadonlySet<string>
@@ -313,7 +464,8 @@ function readCodexGoalDescendants(
 
 function readCodexSqlite(
   filePath: string,
-  goalTokens: ReadonlyMap<string, CodexGoalTokenUsage>
+  goalTokens: ReadonlyMap<string, CodexGoalTokenUsage>,
+  coveredGoalThreadIds: ReadonlySet<string>
 ): {
   rows: UsageSlice[]
   referencedRollouts: Set<string>
@@ -365,6 +517,13 @@ function readCodexSqlite(
         // goal ledger is the only durable total for the entire spawned tree.
         if (typeof id === "string" && goalDescendants.has(id) && !goalUsage)
           continue
+        if (
+          typeof id === "string" &&
+          goalUsage &&
+          coveredGoalThreadIds.has(id)
+        ) {
+          continue
+        }
 
         const parsedRollout =
           typeof rolloutPath === "string" && rolloutPath.length > 0
@@ -432,8 +591,25 @@ export async function readCodexUsage(
     readCodexGoalTokenUsage(target, goalTokens)
   }
 
+  const goalRollouts = new Set<string>()
   for (const target of sqliteTargets) {
-    const result = readCodexSqlite(target, goalTokens)
+    for (const rollout of collectCodexGoalRollouts(
+      target,
+      new Set(goalTokens.keys())
+    )) {
+      goalRollouts.add(rollout)
+    }
+  }
+  const goalUsage = await readCodexGoalUsage(
+    [...goalRollouts].filter(existsSync)
+  )
+
+  for (const target of sqliteTargets) {
+    const result = readCodexSqlite(
+      target,
+      goalTokens,
+      goalUsage.coveredThreadIds
+    )
     for (const rollout of result.referencedRollouts)
       referencedRollouts.add(rollout)
     for (const row of result.rows) {
@@ -445,9 +621,14 @@ export async function readCodexUsage(
   }
 
   for (const target of targets.filter((t) => t.endsWith(".jsonl"))) {
-    if (referencedRollouts.has(resolve(target))) continue
+    if (
+      referencedRollouts.has(resolve(target)) ||
+      goalUsage.files.has(resolve(target))
+    ) {
+      continue
+    }
     jsonlRows.push(...(await readCodexJsonl(target)))
   }
 
-  return [...sqliteRows.values(), ...jsonlRows]
+  return [...sqliteRows.values(), ...goalUsage.rows, ...jsonlRows]
 }

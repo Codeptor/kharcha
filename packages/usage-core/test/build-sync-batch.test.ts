@@ -42,7 +42,7 @@ describe("buildSyncBatch", () => {
             cacheWriteCost: 5,
           },
         ],
-      ]),
+      ])
     )
 
     expect(batch.rows).toHaveLength(1)
@@ -59,6 +59,45 @@ describe("buildSyncBatch", () => {
       model: "claude-sonnet-4-6",
       inputCost: 2,
       outputCost: 3,
+    })
+  })
+
+  it("keeps aggregate goal tokens unpriced without a token-class split", async () => {
+    const batch = await buildSyncBatch(
+      [
+        {
+          source: "codex",
+          provider: "openai",
+          model: "codex-goal",
+          day: "2026-03-20",
+          startedAt: "2026-03-20T10:00:00.000Z",
+          inputTokens: 1_000_000,
+          outputTokens: null,
+          cacheReadTokens: null,
+          cacheWriteTokens: null,
+          exactCostUsd: null,
+          preventEstimatedCost: true,
+          sourceSessionHash: "goal-123",
+        },
+      ],
+      new Map([
+        [
+          "openai:codex-goal",
+          {
+            inputCost: 2,
+            outputCost: 3,
+            cacheReadCost: 4,
+            cacheWriteCost: 5,
+          },
+        ],
+      ])
+    )
+
+    expect(batch.rows[0]).toMatchObject({
+      costUsd: 0,
+      pricingMode: "unpriced",
+      pricingSnapshotKey: null,
+      inputTokens: 1_000_000,
     })
   })
 })
