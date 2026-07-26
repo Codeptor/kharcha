@@ -339,8 +339,8 @@ describe("source readers", () => {
           inputTokens: row.inputTokens,
         }))
       ).toEqual([
-        { day: "2026-03-10", model: "codex-goal", inputTokens: 100 },
-        { day: "2026-03-11", model: "codex-goal", inputTokens: 150 },
+        { day: "2026-03-10", model: "gpt-5.5", inputTokens: 100 },
+        { day: "2026-03-11", model: "gpt-5.5", inputTokens: 150 },
       ])
     } finally {
       await rm(tempDir, { recursive: true, force: true })

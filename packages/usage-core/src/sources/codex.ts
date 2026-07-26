@@ -50,6 +50,11 @@ type CodexGoalUpdate = {
   tokensUsed: number
 }
 
+type CodexThreadModel = {
+  provider: string
+  model: string
+}
+
 type CodexGoalUsageResult = {
   rows: UsageSlice[]
   coveredThreadIds: Set<string>
@@ -142,11 +147,12 @@ function parseCodexGoalUpdate(line: string): CodexGoalUpdate | null {
 }
 
 async function readCodexGoalUsage(
-  files: string[]
+  files: string[],
+  threadModels: ReadonlyMap<string, CodexThreadModel>
 ): Promise<CodexGoalUsageResult> {
   const snapshotsByGoal = new Map<
     number,
-    { threadIds: Set<string>; snapshots: Map<number, number> }
+    { threadIds: Set<string>; snapshots: Map<number, CodexGoalUpdate> }
   >()
   const goalFiles = new Set<string>()
 
@@ -164,13 +170,19 @@ async function readCodexGoalUsage(
       foundGoalUpdate = true
       const group = snapshotsByGoal.get(update.createdAt) ?? {
         threadIds: new Set<string>(),
-        snapshots: new Map<number, number>(),
+        snapshots: new Map<number, CodexGoalUpdate>(),
       }
       group.threadIds.add(update.threadId)
-      group.snapshots.set(
-        update.updatedAt,
-        Math.max(group.snapshots.get(update.updatedAt) ?? 0, update.tokensUsed)
-      )
+      const existing = group.snapshots.get(update.updatedAt)
+      if (
+        !existing ||
+        update.tokensUsed > existing.tokensUsed ||
+        (update.tokensUsed === existing.tokensUsed &&
+          !threadModels.has(existing.threadId) &&
+          threadModels.has(update.threadId))
+      ) {
+        group.snapshots.set(update.updatedAt, update)
+      }
       snapshotsByGoal.set(update.createdAt, group)
     }
     if (foundGoalUpdate) goalFiles.add(resolve(filePath))
@@ -182,10 +194,19 @@ async function readCodexGoalUsage(
     for (const threadId of group.threadIds) coveredThreadIds.add(threadId)
 
     let previousTokens = 0
-    const daily = new Map<string, { tokens: number; startedAt: string }>()
-    for (const [updatedAt, tokensUsed] of [...group.snapshots].sort(
+    const daily = new Map<
+      string,
+      {
+        provider: string
+        model: string
+        tokens: number
+        startedAt: string
+      }
+    >()
+    for (const [updatedAt, snapshot] of [...group.snapshots].sort(
       ([a], [b]) => a - b
     )) {
+      const { tokensUsed } = snapshot
       const delta =
         tokensUsed >= previousTokens ? tokensUsed - previousTokens : tokensUsed
       previousTokens = tokensUsed
@@ -193,20 +214,31 @@ async function readCodexGoalUsage(
 
       const timestamp = new Date(toTimestampMs(updatedAt))
       const day = toDay(updatedAt)
-      const current = daily.get(day) ?? {
+      const threadModel = threadModels.get(snapshot.threadId) ?? {
+        provider: "openai",
+        model: "codex-goal",
+      }
+      const normalized = normalizeModelKey(
+        threadModel.provider,
+        threadModel.model
+      )
+      const key = `${day}:${normalized.provider}:${normalized.model}`
+      const current = daily.get(key) ?? {
+        provider: normalized.provider,
+        model: normalized.model,
         tokens: 0,
         startedAt: timestamp.toISOString(),
       }
       current.tokens += delta
-      daily.set(day, current)
+      daily.set(key, current)
     }
 
-    for (const [day, value] of daily) {
+    for (const value of daily.values()) {
       rows.push({
         source: "codex",
-        provider: "openai",
-        model: "codex-goal",
-        day,
+        provider: value.provider,
+        model: value.model,
+        day: toDay(value.startedAt),
         startedAt: value.startedAt,
         inputTokens: value.tokens,
         outputTokens: null,
@@ -388,6 +420,36 @@ function readCodexGoalTokenUsage(
     }
   } catch {
     // This SQLite file does not contain the separate Codex goal ledger.
+  } finally {
+    db.close()
+  }
+}
+
+function readCodexThreadModels(
+  filePath: string,
+  threadModels: Map<string, CodexThreadModel>
+): void {
+  const db = new Database(filePath, { readonly: true })
+
+  try {
+    for (const row of db
+      .query("select id, model_provider, model from threads")
+      .all() as Array<Record<string, string | number | null>>) {
+      const id = row.id
+      const provider = row.model_provider
+      const model = row.model
+      if (
+        typeof id === "string" &&
+        typeof provider === "string" &&
+        provider.length > 0 &&
+        typeof model === "string" &&
+        model.length > 0
+      ) {
+        threadModels.set(id, { provider, model })
+      }
+    }
+  } catch {
+    // This SQLite file has no Codex thread ledger.
   } finally {
     db.close()
   }
@@ -583,12 +645,14 @@ export async function readCodexUsage(
   const jsonlRows: UsageSlice[] = []
   const referencedRollouts = new Set<string>()
   const goalTokens = new Map<string, CodexGoalTokenUsage>()
+  const threadModels = new Map<string, CodexThreadModel>()
   const sqliteTargets = targets.filter(
     (t) => t.endsWith(".sqlite") || t.endsWith(".db")
   )
 
   for (const target of sqliteTargets) {
     readCodexGoalTokenUsage(target, goalTokens)
+    readCodexThreadModels(target, threadModels)
   }
 
   const goalRollouts = new Set<string>()
@@ -601,7 +665,8 @@ export async function readCodexUsage(
     }
   }
   const goalUsage = await readCodexGoalUsage(
-    [...goalRollouts].filter(existsSync)
+    [...goalRollouts].filter(existsSync),
+    threadModels
   )
 
   for (const target of sqliteTargets) {
