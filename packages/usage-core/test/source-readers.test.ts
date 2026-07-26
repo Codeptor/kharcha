@@ -175,6 +175,73 @@ describe("source readers", () => {
     }
   })
 
+  it("uses the Codex goal ledger once and excludes its spawned threads", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "codex-reader-goals-"))
+    const statePath = join(tempDir, "state.sqlite")
+    const goalsPath = join(tempDir, "goals_1.sqlite")
+    const state = new Database(statePath, { create: true })
+    const goals = new Database(goalsPath, { create: true })
+
+    try {
+      state.exec(`
+        create table threads (
+          id text primary key,
+          rollout_path text not null,
+          model_provider text not null,
+          model text,
+          created_at integer,
+          tokens_used integer
+        );
+        create table thread_spawn_edges (
+          parent_thread_id text not null,
+          child_thread_id text primary key,
+          status text not null
+        );
+        insert into threads values
+          ('goal-root', '/missing/root.jsonl', 'openai', 'gpt-5.5', 1773162088, 10000000000),
+          ('goal-child', '/missing/child.jsonl', 'openai', 'gpt-5.5', 1773162089, 3000000000),
+          ('ordinary-thread', '/missing/ordinary.jsonl', 'openai', 'gpt-5.5', 1773162090, 200);
+        insert into thread_spawn_edges values ('goal-root', 'goal-child', 'closed');
+      `)
+      goals.exec(`
+        create table thread_goals (
+          thread_id text primary key,
+          goal_id text not null,
+          objective text not null,
+          status text not null,
+          token_budget integer,
+          tokens_used integer not null,
+          time_used_seconds integer not null,
+          created_at_ms integer not null,
+          updated_at_ms integer not null
+        );
+        insert into thread_goals values
+          ('goal-root', 'goal-1', 'finish the task', 'active', null, 100, 0, 1773162088000, 1773162088000);
+      `)
+    } finally {
+      state.close()
+      goals.close()
+    }
+
+    try {
+      const rows = await readCodexUsage(tempDir)
+
+      expect(rows).toHaveLength(2)
+      expect(
+        rows
+          .map(
+            (row) =>
+              (row.inputTokens ?? 0) +
+              (row.outputTokens ?? 0) +
+              (row.cacheReadTokens ?? 0)
+          )
+          .sort((a, b) => a - b)
+      ).toEqual([100, 200])
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it("skips sqlite files without a threads table", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "codex-reader-"))
     const dbPath = join(tempDir, "logs_1.sqlite")

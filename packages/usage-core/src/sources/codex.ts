@@ -37,6 +37,11 @@ type ParsedCodexRollout = {
   usage: CodexTokenUsage | null
 }
 
+type CodexGoalTokenUsage = {
+  tokensUsed: number
+  updatedAtMs: number
+}
+
 const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
   openai: "gpt-5.4",
   anthropic: "claude-sonnet-4-6",
@@ -159,7 +164,7 @@ function splitCodexUsage(
 > {
   if (!usage) {
     return {
-      inputTokens: totalOverride && totalOverride > 0 ? totalOverride : null,
+      inputTokens: totalOverride,
       outputTokens: null,
       cacheReadTokens: null,
       cacheWriteTokens: null,
@@ -172,8 +177,7 @@ function splitCodexUsage(
   const observedTotal = inputRaw + output
 
   if (
-    totalOverride &&
-    totalOverride > 0 &&
+    totalOverride !== null &&
     observedTotal > 0 &&
     totalOverride !== observedTotal
   ) {
@@ -230,7 +234,87 @@ function totalTokens(row: UsageSlice): number {
   )
 }
 
-function readCodexSqlite(filePath: string): {
+function readCodexGoalTokenUsage(
+  filePath: string,
+  goalTokens: Map<string, CodexGoalTokenUsage>
+): void {
+  const db = new Database(filePath, { readonly: true })
+
+  try {
+    const rows = db
+      .query("select thread_id, tokens_used, updated_at_ms from thread_goals")
+      .all() as Array<Record<string, string | number | null>>
+
+    for (const row of rows) {
+      const threadId = row.thread_id
+      const tokensUsed = row.tokens_used
+      const updatedAtMs = row.updated_at_ms
+      if (
+        typeof threadId !== "string" ||
+        typeof tokensUsed !== "number" ||
+        tokensUsed < 0
+      ) {
+        continue
+      }
+
+      const updated = typeof updatedAtMs === "number" ? updatedAtMs : 0
+      const existing = goalTokens.get(threadId)
+      if (
+        !existing ||
+        updated > existing.updatedAtMs ||
+        (updated === existing.updatedAtMs && tokensUsed > existing.tokensUsed)
+      ) {
+        goalTokens.set(threadId, { tokensUsed, updatedAtMs: updated })
+      }
+    }
+  } catch {
+    // This SQLite file does not contain the separate Codex goal ledger.
+  } finally {
+    db.close()
+  }
+}
+
+function readCodexGoalDescendants(
+  db: Database,
+  goalThreadIds: ReadonlySet<string>
+): Set<string> {
+  if (goalThreadIds.size === 0) return new Set()
+
+  try {
+    const children = new Map<string, string[]>()
+    for (const row of db
+      .query("select parent_thread_id, child_thread_id from thread_spawn_edges")
+      .all() as Array<Record<string, string | number | null>>) {
+      const parentId = row.parent_thread_id
+      const childId = row.child_thread_id
+      if (typeof parentId !== "string" || typeof childId !== "string") continue
+      const list = children.get(parentId) ?? []
+      list.push(childId)
+      children.set(parentId, list)
+    }
+
+    const descendants = new Set<string>()
+    const pending = [...goalThreadIds]
+    while (pending.length > 0) {
+      const parentId = pending.pop()
+      if (!parentId) continue
+      for (const childId of children.get(parentId) ?? []) {
+        if (descendants.has(childId) || goalThreadIds.has(childId)) continue
+        descendants.add(childId)
+        pending.push(childId)
+      }
+    }
+
+    return descendants
+  } catch {
+    return new Set()
+  }
+}
+
+function readCodexSqlite(
+  filePath: string,
+  goalTokens: ReadonlyMap<string, CodexGoalTokenUsage>
+): {
   rows: UsageSlice[]
   referencedRollouts: Set<string>
 } {
@@ -256,6 +340,10 @@ function readCodexSqlite(filePath: string): {
         ? "coalesce(nullif(created_at_ms, 0), created_at) as created_at"
         : "created_at"
       const query = `select id, ${hasRolloutPath ? "rollout_path" : "null as rollout_path"}, model_provider, model, ${createdAtExpr}, tokens_used from threads`
+      const goalDescendants = readCodexGoalDescendants(
+        db,
+        new Set(goalTokens.keys())
+      )
 
       for (const row of db.query(query).all() as Array<
         Record<string, string | number | null>
@@ -267,13 +355,21 @@ function readCodexSqlite(filePath: string): {
         const createdAt = row.created_at
         const tokensUsed =
           typeof row.tokens_used === "number" ? row.tokens_used : 0
+        const goalUsage =
+          typeof id === "string" ? (goalTokens.get(id) ?? null) : null
+
+        if (typeof rolloutPath === "string" && rolloutPath.length > 0)
+          referencedRollouts.add(resolve(rolloutPath))
+
+        // Codex's /goal tracing bug duplicates child token receipts. The parent
+        // goal ledger is the only durable total for the entire spawned tree.
+        if (typeof id === "string" && goalDescendants.has(id) && !goalUsage)
+          continue
+
         const parsedRollout =
           typeof rolloutPath === "string" && rolloutPath.length > 0
             ? readCodexRolloutSync(rolloutPath)
             : null
-
-        if (typeof rolloutPath === "string" && rolloutPath.length > 0)
-          referencedRollouts.add(resolve(rolloutPath))
 
         const effectiveProvider =
           typeof provider === "string" && provider.length > 0
@@ -290,7 +386,7 @@ function readCodexSqlite(filePath: string): {
         const normalized = normalizeModelKey(effectiveProvider, model)
         const tokens = splitCodexUsage(
           parsedRollout?.usage ?? null,
-          tokensUsed > 0 ? tokensUsed : null
+          goalUsage?.tokensUsed ?? (tokensUsed > 0 ? tokensUsed : null)
         )
         const startedAt =
           typeof createdAt === "number"
@@ -327,11 +423,17 @@ export async function readCodexUsage(
   const sqliteRows = new Map<string, UsageSlice>()
   const jsonlRows: UsageSlice[] = []
   const referencedRollouts = new Set<string>()
-
-  for (const target of targets.filter(
+  const goalTokens = new Map<string, CodexGoalTokenUsage>()
+  const sqliteTargets = targets.filter(
     (t) => t.endsWith(".sqlite") || t.endsWith(".db")
-  )) {
-    const result = readCodexSqlite(target)
+  )
+
+  for (const target of sqliteTargets) {
+    readCodexGoalTokenUsage(target, goalTokens)
+  }
+
+  for (const target of sqliteTargets) {
+    const result = readCodexSqlite(target, goalTokens)
     for (const rollout of result.referencedRollouts)
       referencedRollouts.add(rollout)
     for (const row of result.rows) {
