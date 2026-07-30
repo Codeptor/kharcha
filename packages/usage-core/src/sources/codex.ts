@@ -13,7 +13,6 @@ type CcusageModel = {
 
 type CcusageDay = {
   date?: string
-  costUSD?: number
   models?: Record<string, CcusageModel>
 }
 
@@ -73,28 +72,9 @@ export function parseCcusageCodexDaily(value: unknown): UsageSlice[] {
                 (cacheRead ?? 0) +
                 (cacheWrite ?? 0)),
         exactCostUsd: null,
-        preventEstimatedCost: true,
         sourceSessionHash: hashId(
           `ccusage:codex:tokens:${day.date}:${normalized.provider}:${normalized.model}`
         ),
-      })
-    }
-
-    const cost = finite(day.costUSD)
-    if (cost !== null) {
-      rows.push({
-        source: "codex",
-        provider: "openai",
-        model: "codex-daily-aggregate",
-        day: day.date,
-        startedAt: `${day.date}T00:00:00.000Z`,
-        inputTokens: null,
-        outputTokens: null,
-        cacheReadTokens: null,
-        cacheWriteTokens: null,
-        aggregateTokens: null,
-        exactCostUsd: cost,
-        sourceSessionHash: hashId(`ccusage:codex:cost:${day.date}`),
       })
     }
   }

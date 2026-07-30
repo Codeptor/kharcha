@@ -13,12 +13,11 @@ describe("source readers", () => {
     expect(rows[0]?.model).toBe("claude-opus-4-6")
   })
 
-  it("uses ccusage Codex totals and keeps cost as a daily aggregate", () => {
+  it("uses ccusage Codex totals as model-priced rows", () => {
     const rows = parseCcusageCodexDaily({
       daily: [
         {
           date: "2026-07-26",
-          costUSD: 111.64193465,
           models: {
             "gpt-5.3-codex-spark": {
               inputTokens: 100_259,
@@ -39,21 +38,14 @@ describe("source readers", () => {
       ],
     })
 
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(2)
     expect(rows).toContainEqual(
       expect.objectContaining({
         model: "gpt-5.6-luna",
         inputTokens: 11_248_873,
         outputTokens: 1_574_102,
         cacheReadTokens: 903_218_688,
-        preventEstimatedCost: true,
-      })
-    )
-    expect(rows).toContainEqual(
-      expect.objectContaining({
-        model: "codex-daily-aggregate",
-        exactCostUsd: 111.64193465,
-        inputTokens: null,
+        exactCostUsd: null,
       })
     )
   })
