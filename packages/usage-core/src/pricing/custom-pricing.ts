@@ -81,6 +81,28 @@ export const CUSTOM_PRICING: Record<string, PricingSnapshot> = {
     cacheWriteCost: 1.25,
   },
 
+  // Meta Muse Spark — Model API pricing (spirit — correct):
+  // https://developer.meta.com/ai/products/meta-model-api
+  // Standard: not used to improve products; Contributor: used to improve products.
+  "meta:muse-spark-1.1": {
+    inputCost: 1.25,
+    outputCost: 4.25,
+    cacheReadCost: 0.15,
+    cacheWriteCost: null,
+  },
+  "meta:muse-spark-1.2": {
+    inputCost: 1.25,
+    outputCost: 4.25,
+    cacheReadCost: 0.15,
+    cacheWriteCost: null,
+  },
+  "meta:muse-spark-1.2-contributor": {
+    inputCost: 0.1,
+    outputCost: 0.2,
+    cacheReadCost: 0.002,
+    cacheWriteCost: null,
+  },
+
   // Sakana Fugu Ultra fixed token pricing:
   // https://sakana.ai/fugu/
   "sakana:fugu-ultra": {

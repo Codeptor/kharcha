@@ -9,6 +9,8 @@ import moonshotSvg from "@lobehub/icons-static-svg/icons/moonshot.svg?raw"
 import opencodeSvg from "@lobehub/icons-static-svg/icons/opencode.svg?raw"
 import githubcopilotSvg from "@lobehub/icons-static-svg/icons/githubcopilot.svg?raw"
 import nvidiaSvg from "@lobehub/icons-static-svg/icons/nvidia.svg?raw"
+import metaSvg from "@lobehub/icons-static-svg/icons/meta.svg?raw"
+import deepseekSvg from "@lobehub/icons-static-svg/icons/deepseek.svg?raw"
 
 function extractPaths(svg: string): string[] {
   const matches = svg.matchAll(/\sd="([^"]+)"/g)
@@ -38,6 +40,8 @@ const ICON_PATHS: Record<string, string[]> = {
   "github-copilot": extractPaths(githubcopilotSvg),
   opencode: extractPaths(opencodeSvg),
   nvidia: extractPaths(nvidiaSvg),
+  meta: extractPaths(metaSvg),
+  deepseek: extractPaths(deepseekSvg),
   sakana: SAKANA_FISH,
   fugu: SAKANA_FISH,
 }
