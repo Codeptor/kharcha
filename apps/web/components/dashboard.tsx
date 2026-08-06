@@ -957,13 +957,8 @@ export function Dashboard({ data }: { data: DashboardData }) {
                       seg.input + seg.output + seg.cacheRead + seg.cacheWrite
                     )}
                   </span>
-                  <span className="inline-flex items-center gap-1 justify-end sm:gap-1.5">
-                    <span title={`harness: ${seg.source}`}>
-                      <ProviderIcon name={seg.source} size={11} />
-                    </span>
-                    <span title={`provider: ${providerFromKey(seg.key)}`}>
-                      <ProviderIcon name={providerFromKey(seg.key)} size={11} />
-                    </span>
+                  <span className="inline-flex w-5 justify-end sm:w-6">
+                    <ProviderIcon name={seg.source} size={11} />
                   </span>
                 </div>
               ))}

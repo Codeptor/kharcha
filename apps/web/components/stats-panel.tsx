@@ -224,9 +224,6 @@ export function StatsPanel({
                   >
                     {displayModel(m.label)}
                   </span>
-                  <span className="hidden items-center gap-1 sm:inline-flex" title={`provider: ${m.provider}`}>
-                    <ProviderIcon name={m.provider} size={10} />
-                  </span>
                 </span>
                 <span className="grid w-full grid-cols-4 gap-2 pl-6 font-mono text-[10px] text-stone-500 tabular-nums min-[430px]:flex min-[430px]:w-auto min-[430px]:shrink-0 min-[430px]:gap-3 min-[430px]:pl-0 sm:gap-8 sm:text-[12px] dark:text-stone-400">
                   <span className="min-w-0 min-[430px]:w-10 min-[430px]:text-right sm:w-14">
