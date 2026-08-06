@@ -21,7 +21,7 @@ import {
   formatCompact,
   formatFull,
 } from "@/lib/dashboard/currency"
-import { ProviderIcon } from "./provider-icon"
+import { ProviderIcon, ModelIcon } from "./provider-icon"
 import { Heatmap } from "./heatmap"
 import { HourHeatmap } from "./hour-heatmap"
 import { StatsPanel } from "./stats-panel"
@@ -941,7 +941,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
                   }}
                 >
                   <span className="inline-flex w-4 justify-center sm:w-5">
-                    <ProviderIcon name={providerFromKey(seg.key)} size={12} />
+                    <ModelIcon model={seg.label} provider={providerFromKey(seg.key)} size={12} />
                   </span>
                   <span
                     className="inline-block w-28 truncate text-[11px] text-stone-700 sm:w-44 sm:text-[13px] dark:text-stone-300"
@@ -957,8 +957,13 @@ export function Dashboard({ data }: { data: DashboardData }) {
                       seg.input + seg.output + seg.cacheRead + seg.cacheWrite
                     )}
                   </span>
-                  <span className="inline-flex w-5 justify-end sm:w-6">
-                    <ProviderIcon name={seg.source} size={11} />
+                  <span className="inline-flex items-center gap-1 justify-end sm:gap-1.5">
+                    <span title={`harness: ${seg.source}`}>
+                      <ProviderIcon name={seg.source} size={11} />
+                    </span>
+                    <span title={`provider: ${providerFromKey(seg.key)}`}>
+                      <ProviderIcon name={providerFromKey(seg.key)} size={11} />
+                    </span>
                   </span>
                 </div>
               ))}

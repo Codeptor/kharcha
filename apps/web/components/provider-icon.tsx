@@ -46,6 +46,37 @@ const ICON_PATHS: Record<string, string[]> = {
   fugu: SAKANA_FISH,
 }
 
+function getModelIconName(model: string, provider?: string): string {
+  const raw = model.includes(" / ") ? (model.split(" / ").pop() ?? model) : model
+  const base = raw.includes("/") ? (raw.split("/").pop() ?? raw) : raw
+  const m = base.toLowerCase()
+  if (m.startsWith("muse-spark") || m.startsWith("muse-")) return "meta"
+  if (m.startsWith("kimi")) return "kimi"
+  if (m.startsWith("claude")) return "anthropic"
+  if (m.startsWith("gpt") || m.startsWith("codex") || m.startsWith("o1") || m.startsWith("o3")) return "openai"
+  if (m.startsWith("gemini") || m.startsWith("gemma")) return "gemini"
+  if (m.startsWith("deepseek")) return "deepseek"
+  if (m.startsWith("fugu")) return "sakana"
+  if (m.startsWith("grok")) return "groq"
+  if (provider && ICON_PATHS[provider]) return provider
+  return m.split("-")[0] ?? provider ?? "unknown"
+}
+
+export function ModelIcon({
+  model,
+  provider,
+  size = 12,
+  className,
+}: {
+  model: string
+  provider?: string
+  size?: number
+  className?: string
+}) {
+  const name = getModelIconName(model, provider)
+  return <ProviderIcon name={name} size={size} className={className} />
+}
+
 export function ProviderIcon({
   name,
   size = 14,

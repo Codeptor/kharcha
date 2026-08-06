@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { ModelStat, StreakInfo, UsageMetrics } from "@/lib/dashboard/stats"
-import { ProviderIcon } from "./provider-icon"
+import { ProviderIcon, ModelIcon } from "./provider-icon"
 
 function displayModel(label: string): string {
   const slash = label.lastIndexOf(" / ")
@@ -216,13 +216,16 @@ export function StatsPanel({
               >
                 <span className="flex w-full min-w-0 items-center gap-2 min-[430px]:w-auto min-[430px]:flex-1">
                   <span className="inline-flex w-4 shrink-0 justify-center">
-                    <ProviderIcon name={m.provider} size={11} />
+                    <ModelIcon model={m.label} provider={m.provider} size={11} />
                   </span>
                   <span
                     className="min-w-0 flex-1 truncate text-[11px] text-stone-700 sm:text-[13px] dark:text-stone-300"
                     style={{ fontFamily: "var(--font-display)" }}
                   >
                     {displayModel(m.label)}
+                  </span>
+                  <span className="hidden items-center gap-1 sm:inline-flex" title={`provider: ${m.provider}`}>
+                    <ProviderIcon name={m.provider} size={10} />
                   </span>
                 </span>
                 <span className="grid w-full grid-cols-4 gap-2 pl-6 font-mono text-[10px] text-stone-500 tabular-nums min-[430px]:flex min-[430px]:w-auto min-[430px]:shrink-0 min-[430px]:gap-3 min-[430px]:pl-0 sm:gap-8 sm:text-[12px] dark:text-stone-400">
