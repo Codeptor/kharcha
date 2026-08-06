@@ -24,6 +24,13 @@ const SAKANA_FISH = [
   "M15 12 22 8 19.5 12 22 16Z",
 ]
 
+// Modal has no lobehub icon — extracted from https://modal.com/assets/favicon.svg
+// (300×300 geometric M, green #62DE61). Single outline path, rendered monochrome
+// via currentColor to match other provider marks. Uses 300 viewBox.
+const MODAL_LOGO = [
+  "M121.683 75.25L149.997 124L91.4816 224.75C90.3128 226.757 88.155 228 85.8174 228H32.9664C31.7976 228 30.6778 227.691 29.697 227.131C28.7161 226.57 27.8906 225.758 27.3021 224.75L0.876625 179.25C-0.292208 177.243 -0.292208 174.765 0.876625 172.75L57.512 75.25C58.0923 74.2425 58.9259 73.43 59.9068 72.8694C60.8876 72.3088 62.0074 72 63.1762 72H116.027C118.365 72 120.523 73.2431 121.692 75.25H121.683ZM299.125 172.75L242.49 75.25C241.91 74.2425 241.076 73.43 240.095 72.8694C239.114 72.3088 237.995 72 236.826 72H183.975C181.637 72 179.479 73.2431 178.311 75.25L149.997 124L208.512 224.75C209.681 226.757 211.839 228 214.177 228H267.027C268.196 228 269.316 227.691 270.297 227.131C271.278 226.57 272.103 225.758 272.692 224.75L299.117 179.25C300.286 177.243 300.286 174.765 299.117 172.75H299.125Z",
+]
+
 const ICON_PATHS: Record<string, string[]> = {
   anthropic: extractPaths(claudeSvg),
   claude: extractPaths(claudeSvg),
@@ -44,6 +51,11 @@ const ICON_PATHS: Record<string, string[]> = {
   deepseek: extractPaths(deepseekSvg),
   sakana: SAKANA_FISH,
   fugu: SAKANA_FISH,
+  modal: MODAL_LOGO,
+}
+
+const ICON_VIEWBOX: Record<string, string> = {
+  modal: "0 0 300 300",
 }
 
 function getModelIconName(model: string, provider?: string): string {
@@ -87,6 +99,7 @@ export function ProviderIcon({
   className?: string
 }) {
   const paths = ICON_PATHS[name]
+  const viewBox = ICON_VIEWBOX[name] ?? "0 0 24 24"
 
   if (!paths || paths.length === 0) {
     return (
@@ -107,7 +120,7 @@ export function ProviderIcon({
         xmlns="http://www.w3.org/2000/svg"
         width={size}
         height={size}
-        viewBox="0 0 24 24"
+        viewBox={viewBox}
         fill="currentColor"
         aria-hidden="true"
       >
