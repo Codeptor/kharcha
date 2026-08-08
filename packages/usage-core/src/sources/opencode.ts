@@ -14,6 +14,10 @@ type OpenCodeRecord = {
   role?: string
   providerID?: string
   modelID?: string
+  model?: {
+    id?: string
+    providerID?: string
+  }
   cost?: number
   tokens?: {
     input?: number
@@ -44,10 +48,13 @@ async function collectOpenCodeTargets(targetPath: string): Promise<string[]> {
       if (entry.isDirectory()) {
         return collectOpenCodeTargets(childPath)
       }
-      return childPath.endsWith(".json") || childPath.endsWith(".jsonl") || childPath.endsWith(".sqlite") || childPath.endsWith(".db")
+      return childPath.endsWith(".json") ||
+        childPath.endsWith(".jsonl") ||
+        childPath.endsWith(".sqlite") ||
+        childPath.endsWith(".db")
         ? [childPath]
         : []
-    }),
+    })
   )
 
   return children.flat()
@@ -67,7 +74,9 @@ function hashSessionId(sessionId: string): string {
   return createHash("sha256").update(sessionId).digest("hex")
 }
 
-function parseRecord(input: string | Record<string, unknown>): OpenCodeRecord | null {
+function parseRecord(
+  input: string | Record<string, unknown>
+): OpenCodeRecord | null {
   if (typeof input === "string") {
     try {
       return JSON.parse(input) as OpenCodeRecord
@@ -79,17 +88,27 @@ function parseRecord(input: string | Record<string, unknown>): OpenCodeRecord | 
   return input as OpenCodeRecord
 }
 
-function readColumnValue(row: Record<string, unknown>, key: string): string | number | null | undefined {
+function readColumnValue(
+  row: Record<string, unknown>,
+  key: string
+): string | number | null | undefined {
   const value = row[key]
-  if (typeof value === "string" || typeof value === "number" || value === null) {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    value === null
+  ) {
     return value as string | number | null
   }
 
   return undefined
 }
 
-function outputTokens(tokens: OpenCodeRecord["tokens"] | undefined): number | null {
-  if (tokens?.output === undefined && tokens?.reasoning === undefined) return null
+function outputTokens(
+  tokens: OpenCodeRecord["tokens"] | undefined
+): number | null {
+  if (tokens?.output === undefined && tokens?.reasoning === undefined)
+    return null
   return (tokens.output ?? 0) + (tokens.reasoning ?? 0)
 }
 
@@ -116,8 +135,11 @@ async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
       outputTokens: outputTokens(tokens),
       cacheReadTokens: tokens.cache?.read ?? null,
       cacheWriteTokens: tokens.cache?.write ?? null,
-      exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
-      sourceSessionHash: hashSessionId(parsed.session_id ?? parsed.id ?? targetPath),
+      exactCostUsd:
+        typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
+      sourceSessionHash: hashSessionId(
+        parsed.session_id ?? parsed.id ?? targetPath
+      ),
     },
   ]
 }
@@ -127,36 +149,110 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
   const db = new Database(targetPath, { readonly: true })
 
   try {
-    for (const row of db.query("select id, session_id, time_created, data from message").all() as Array<
-      Record<string, unknown>
-    >) {
-      const id = readColumnValue(row, "id")
-      const sessionId = readColumnValue(row, "session_id")
-      const timeCreated = readColumnValue(row, "time_created")
-      const data = readColumnValue(row, "data")
-      const record = parseRecord(typeof data === "string" ? data : "")
-      if (!record || record.role !== "assistant") continue
+    const tables = new Set(
+      (
+        db
+          .query("select name from sqlite_master where type = 'table'")
+          .all() as Array<Record<string, unknown>>
+      )
+        .map((row) => row.name)
+        .filter((name): name is string => typeof name === "string")
+    )
 
-      const provider = record.providerID ?? "opencode"
-      const model = record.modelID ?? "unknown"
-      const normalized = normalizeModelKey(provider, model)
-      const tokens = record.tokens ?? {}
+    if (tables.has("message")) {
+      for (const row of db
+        .query("select id, session_id, time_created, data from message")
+        .all() as Array<Record<string, unknown>>) {
+        const id = readColumnValue(row, "id")
+        const sessionId = readColumnValue(row, "session_id")
+        const timeCreated = readColumnValue(row, "time_created")
+        const data = readColumnValue(row, "data")
+        const record = parseRecord(typeof data === "string" ? data : "")
+        if (!record || record.role !== "assistant") continue
 
-      rows.push({
-        source: "opencode",
-        provider: normalized.provider,
-        model: normalized.model,
-        day: toDay(timeCreated ?? record.time?.created ?? undefined),
-        startedAt: typeof timeCreated === "number" ? new Date(timeCreated).toISOString() : null,
-        inputTokens: tokens.input ?? null,
-        outputTokens: outputTokens(tokens),
-        cacheReadTokens: tokens.cache?.read ?? null,
-        cacheWriteTokens: tokens.cache?.write ?? null,
-        exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
-        sourceSessionHash: hashSessionId(
-          typeof sessionId === "string" ? sessionId : typeof id === "string" ? id : targetPath,
-        ),
-      })
+        const provider = record.providerID ?? "opencode"
+        const model = record.modelID ?? "unknown"
+        const normalized = normalizeModelKey(provider, model)
+        const tokens = record.tokens ?? {}
+
+        rows.push({
+          source: "opencode",
+          provider: normalized.provider,
+          model: normalized.model,
+          day: toDay(timeCreated ?? record.time?.created ?? undefined),
+          startedAt:
+            typeof timeCreated === "number"
+              ? new Date(timeCreated).toISOString()
+              : null,
+          inputTokens: tokens.input ?? null,
+          outputTokens: outputTokens(tokens),
+          cacheReadTokens: tokens.cache?.read ?? null,
+          cacheWriteTokens: tokens.cache?.write ?? null,
+          exactCostUsd:
+            typeof record.cost === "number" && record.cost > 0
+              ? record.cost
+              : null,
+          sourceSessionHash: hashSessionId(
+            typeof sessionId === "string"
+              ? sessionId
+              : typeof id === "string"
+                ? id
+                : targetPath
+          ),
+        })
+      }
+    }
+
+    if (tables.has("session_message")) {
+      const query = tables.has("message")
+        ? `
+          select id, session_id, time_created, data
+          from session_message
+          where type = 'assistant'
+            and not exists (
+              select 1 from message where message.session_id = session_message.session_id
+            )
+        `
+        : "select id, session_id, time_created, data from session_message where type = 'assistant'"
+
+      for (const row of db.query(query).all() as Array<
+        Record<string, unknown>
+      >) {
+        const id = readColumnValue(row, "id")
+        const sessionId = readColumnValue(row, "session_id")
+        const timeCreated = readColumnValue(row, "time_created")
+        const data = readColumnValue(row, "data")
+        const record = parseRecord(typeof data === "string" ? data : "")
+        if (!record) continue
+
+        const provider =
+          record.model?.providerID ?? record.providerID ?? "opencode"
+        const model = record.model?.id ?? record.modelID ?? "unknown"
+        const normalized = normalizeModelKey(provider, model)
+        const tokens = record.tokens ?? {}
+
+        rows.push({
+          source: "opencode",
+          provider: normalized.provider,
+          model: normalized.model,
+          day: toDay(timeCreated ?? record.time?.created ?? undefined),
+          startedAt:
+            typeof timeCreated === "number"
+              ? new Date(timeCreated).toISOString()
+              : null,
+          inputTokens: tokens.input ?? null,
+          outputTokens: outputTokens(tokens),
+          cacheReadTokens: tokens.cache?.read ?? null,
+          cacheWriteTokens: tokens.cache?.write ?? null,
+          exactCostUsd:
+            typeof record.cost === "number" && record.cost > 0
+              ? record.cost
+              : null,
+          sourceSessionHash: hashSessionId(
+            `opencode2:${typeof sessionId === "string" ? sessionId : typeof id === "string" ? id : targetPath}`
+          ),
+        })
+      }
     }
   } finally {
     db.close()
@@ -189,13 +285,20 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
         provider: normalized.provider,
         model: normalized.model,
         day: toDay(parsed.time_created ?? record.time?.created ?? undefined),
-        startedAt: parsed.time_created ? new Date(parsed.time_created).toISOString() : null,
+        startedAt: parsed.time_created
+          ? new Date(parsed.time_created).toISOString()
+          : null,
         inputTokens: tokens.input ?? null,
         outputTokens: outputTokens(tokens),
         cacheReadTokens: tokens.cache?.read ?? null,
         cacheWriteTokens: tokens.cache?.write ?? null,
-        exactCostUsd: typeof record.cost === "number" && record.cost > 0 ? record.cost : null,
-        sourceSessionHash: hashSessionId(parsed.session_id ?? parsed.id ?? targetPath),
+        exactCostUsd:
+          typeof record.cost === "number" && record.cost > 0
+            ? record.cost
+            : null,
+        sourceSessionHash: hashSessionId(
+          parsed.session_id ?? parsed.id ?? targetPath
+        ),
       })
     } catch {
       continue
@@ -205,7 +308,9 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
   return rows
 }
 
-export async function readOpenCodeUsage(targetPath: string): Promise<UsageSlice[]> {
+export async function readOpenCodeUsage(
+  targetPath: string
+): Promise<UsageSlice[]> {
   const targets = await collectOpenCodeTargets(targetPath)
   const rows: UsageSlice[] = []
 
