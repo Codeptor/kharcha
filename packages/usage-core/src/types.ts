@@ -13,7 +13,7 @@ export type PricingSnapshot = {
 }
 
 export type UsageSlice = {
-  source: "claude-code" | "codex" | "opencode" | "kimi"
+  source: "claude-code" | "codex" | "opencode" | "kimi" | "agy"
   provider: string
   model: string
   day: string
@@ -25,5 +25,6 @@ export type UsageSlice = {
   aggregateTokens?: number | null
   exactCostUsd: number | null
   preventEstimatedCost?: boolean
+  requiresCacheWritePricing?: boolean
   sourceSessionHash: string
 }

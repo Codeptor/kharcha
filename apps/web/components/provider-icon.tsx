@@ -35,6 +35,7 @@ const ICON_PATHS: Record<string, string[]> = {
   anthropic: extractPaths(claudeSvg),
   claude: extractPaths(claudeSvg),
   "claude-code": extractPaths(claudeCodeSvg),
+  agy: extractPaths(geminiSvg),
   codex: extractPaths(codexSvg),
   openai: extractPaths(openaiSvg),
   google: extractPaths(geminiSvg),

@@ -102,4 +102,42 @@ describe("buildSyncBatch", () => {
       aggregateTokens: 1_000_000,
     })
   })
+
+  it("does not estimate cache-creation usage without a published rate", async () => {
+    const batch = await buildSyncBatch(
+      [
+        {
+          source: "agy",
+          provider: "agy",
+          model: "gemini-3.6-flash-high",
+          day: "2026-08-09",
+          startedAt: "2026-08-09T10:00:00.000Z",
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 50,
+          cacheWriteTokens: 10,
+          exactCostUsd: null,
+          requiresCacheWritePricing: true,
+          sourceSessionHash: "agy-event-1",
+        },
+      ],
+      new Map([
+        [
+          "google:gemini-3.6-flash",
+          {
+            inputCost: 1.5,
+            outputCost: 7.5,
+            cacheReadCost: 0.15,
+            cacheWriteCost: null,
+          },
+        ],
+      ])
+    )
+
+    expect(batch.rows[0]).toMatchObject({
+      costUsd: 0,
+      pricingMode: "unpriced",
+      pricingSnapshotKey: null,
+    })
+  })
 })

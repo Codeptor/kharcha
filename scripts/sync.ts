@@ -7,6 +7,7 @@ import {
   fetchModelsDevCatalog,
   readClaudeCodeUsage,
   readClaudeStatsCache,
+  readAgyUsage,
   readCodexUsage,
   readKimiUsage,
   readOpenCodeUsage,
@@ -162,6 +163,13 @@ async function loadUsageRows() {
       name: "Kimi Coding",
       path: process.env.KIMI_PATH ?? join(home, ".kimi/sessions"),
       reader: readKimiUsage,
+    },
+    {
+      name: "AGY",
+      path:
+        process.env.AGY_USAGE_PATH ??
+        join(home, ".gemini/antigravity-cli/kharcha-usage.jsonl"),
+      reader: readAgyUsage,
     },
   ] as const
 

@@ -75,16 +75,21 @@ export async function buildSyncBatch(
     const normalized = normalizeModelKey(row.provider, row.model)
     const pricingMatch =
       pricingLookup.get(`${normalized.provider}:${normalized.model}`) ?? null
-    const pricing = row.preventEstimatedCost
-      ? { costUsd: 0, pricingMode: "unpriced" as const, snapshot: null }
-      : freezePricing({
-          exactCostUsd: row.exactCostUsd,
-          pricingMatch,
-          inputTokens: row.inputTokens,
-          outputTokens: row.outputTokens,
-          cacheReadTokens: row.cacheReadTokens,
-          cacheWriteTokens: row.cacheWriteTokens,
-        })
+    const missingRequiredCacheWritePricing =
+      row.requiresCacheWritePricing &&
+      (row.cacheWriteTokens ?? 0) > 0 &&
+      pricingMatch?.cacheWriteCost == null
+    const pricing =
+      row.preventEstimatedCost || missingRequiredCacheWritePricing
+        ? { costUsd: 0, pricingMode: "unpriced" as const, snapshot: null }
+        : freezePricing({
+            exactCostUsd: row.exactCostUsd,
+            pricingMatch,
+            inputTokens: row.inputTokens,
+            outputTokens: row.outputTokens,
+            cacheReadTokens: row.cacheReadTokens,
+            cacheWriteTokens: row.cacheWriteTokens,
+          })
 
     const dedupeKey = createHash("sha256")
       .update(

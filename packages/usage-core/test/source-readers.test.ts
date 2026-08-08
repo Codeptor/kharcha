@@ -1,11 +1,12 @@
 import { describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { readClaudeCodeUsage } from "../src/sources/claude-code"
 import { parseCcusageCodexDaily } from "../src/sources/codex"
 import { readOpenCodeUsage } from "../src/sources/opencode"
+import { readAgyUsage } from "../src/sources/agy"
 
 describe("source readers", () => {
   it("reads Claude Code JSONL rows", async () => {
@@ -168,6 +169,56 @@ describe("source readers", () => {
           exactCostUsd: 0.12,
         })
       )
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("reads server-reported AGY status-line token events", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kharcha-agy-"))
+    const ledgerPath = join(directory, "kharcha-usage.jsonl")
+    await writeFile(
+      ledgerPath,
+      [
+        JSON.stringify({
+          at: "2026-08-09T12:00:00.000Z",
+          cacheCreationInputTokens: 30,
+          cacheReadTokens: 800,
+          eventId: "event-1",
+          inputTokens: 1_200,
+          modelId: "Gemini 3.6 Flash (High)",
+          outputTokens: 400,
+          version: 2,
+        }),
+        JSON.stringify({
+          at: "2026-08-09T12:00:05.000Z",
+          cacheCreationInputTokens: 30,
+          cacheReadTokens: 800,
+          eventId: "event-duplicate",
+          inputTokens: 1_200,
+          modelId: "Gemini 3.6 Flash (High)",
+          outputTokens: 400,
+          version: 2,
+        }),
+        "not-json",
+      ].join("\n")
+    )
+
+    try {
+      const rows = await readAgyUsage(ledgerPath)
+      expect(rows).toHaveLength(1)
+      const [row] = rows
+      expect(row).toMatchObject({
+        source: "agy",
+        provider: "google",
+        model: "gemini-3.6-flash",
+        day: "2026-08-09",
+        inputTokens: 1_200,
+        outputTokens: 400,
+        cacheReadTokens: 800,
+        cacheWriteTokens: 30,
+        requiresCacheWritePricing: true,
+      })
     } finally {
       await rm(directory, { force: true, recursive: true })
     }

@@ -24,6 +24,7 @@
     "typecheck": "turbo typecheck",
     "test": "bun test",
     "sync": "bun run scripts/sync.ts",
+    "agy:install": "bun run scripts/setup-agy-tracker.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },

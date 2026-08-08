@@ -29,4 +29,15 @@ describe("normalizeModelKey", () => {
       model: "kimi-k3",
     })
   })
+
+  it("maps AGY model variants to canonical provider pricing keys", () => {
+    expect(normalizeModelKey("agy", "Gemini 3.6 Flash (High)")).toEqual({
+      provider: "google",
+      model: "gemini-3.6-flash",
+    })
+    expect(normalizeModelKey("agy", "claude-opus-4-6-thinking")).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-6",
+    })
+  })
 })
