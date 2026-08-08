@@ -22,4 +22,11 @@ describe("normalizeModelKey", () => {
       model: "gpt-5.3-codex",
     })
   })
+
+  it("maps Kimi Coding K3 to the canonical Kimi K3 pricing key", () => {
+    expect(normalizeModelKey("kimi-for-coding", "k3")).toEqual({
+      provider: "moonshotai",
+      model: "kimi-k3",
+    })
+  })
 })
