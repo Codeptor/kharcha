@@ -11,6 +11,9 @@ import githubcopilotSvg from "@lobehub/icons-static-svg/icons/githubcopilot.svg?
 import nvidiaSvg from "@lobehub/icons-static-svg/icons/nvidia.svg?raw"
 import metaSvg from "@lobehub/icons-static-svg/icons/meta.svg?raw"
 import deepseekSvg from "@lobehub/icons-static-svg/icons/deepseek.svg?raw"
+import qwenSvg from "@lobehub/icons-static-svg/icons/qwen.svg?raw"
+import chatglmSvg from "@lobehub/icons-static-svg/icons/chatglm.svg?raw"
+import zaiSvg from "@lobehub/icons-static-svg/icons/zai.svg?raw"
 
 function extractPaths(svg: string): string[] {
   const matches = svg.matchAll(/\sd="([^"]+)"/g)
@@ -50,6 +53,12 @@ const ICON_PATHS: Record<string, string[]> = {
   nvidia: extractPaths(nvidiaSvg),
   meta: extractPaths(metaSvg),
   deepseek: extractPaths(deepseekSvg),
+  qwen: extractPaths(qwenSvg),
+  qwencloud: extractPaths(qwenSvg),
+  glm: extractPaths(chatglmSvg),
+  chatglm: extractPaths(chatglmSvg),
+  zhipu: extractPaths(chatglmSvg),
+  zai: extractPaths(zaiSvg),
   sakana: SAKANA_FISH,
   fugu: SAKANA_FISH,
   modal: MODAL_LOGO,
@@ -64,6 +73,8 @@ function getModelIconName(model: string, provider?: string): string {
   const base = raw.includes("/") ? (raw.split("/").pop() ?? raw) : raw
   const m = base.toLowerCase()
   if (m.startsWith("muse-spark") || m.startsWith("muse-")) return "meta"
+  if (m.startsWith("qwen")) return "qwen"
+  if (m.startsWith("glm")) return "zai"
   if (m.startsWith("kimi")) return "kimi"
   if (m.startsWith("claude")) return "anthropic"
   if (m.startsWith("gpt") || m.startsWith("codex") || m.startsWith("o1") || m.startsWith("o3")) return "openai"

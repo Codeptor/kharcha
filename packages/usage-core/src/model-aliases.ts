@@ -8,6 +8,35 @@ const WRAPPED_CLAUDE_PROVIDERS = new Set([
 
 const PROVIDER_ALIASES: Record<string, string> = {}
 
+// Models served through Alibaba Model Studio's Anthropic-compatible endpoint
+// (openCode provider `qwencloud`, or Claude Code via ANTHROPIC_BASE_URL which
+// logs them under provider "anthropic"). Keep the `qwencloud` provider label
+// on the dashboard; pricing is resolved by mirroring the models.dev `alibaba`
+// catalog onto `qwencloud:*` keys (see loadPricingLookup in scripts/sync.ts).
+const QWENCLOUD_MODELS = new Set([
+  "MiniMax-M2.5",
+  "deepseek-v3.2",
+  "deepseek-v4-flash",
+  "deepseek-v4-flash-0731",
+  "deepseek-v4-pro",
+  "glm-5",
+  "glm-5.1",
+  "glm-5.2",
+  "kimi-k2.5",
+  "kimi-k2.6",
+  "kimi-k2.7-code",
+  "qwen-image-2.0",
+  "qwen-image-2.0-pro",
+  "qwen3.6-flash",
+  "qwen3.6-plus",
+  "qwen3.7-max",
+  "qwen3.7-plus",
+  "qwen3.8-max",
+  "qwen3.8-max-preview",
+  "wan2.7-image",
+  "wan2.7-image-pro",
+])
+
 function normalizeAgyModel(model: string): NormalizedModelKey {
   const normalized = model
     .trim()
@@ -52,6 +81,13 @@ export function normalizeModelKey(
     : model
   if (baseModel.startsWith("muse-spark")) {
     return { provider: "meta", model: baseModel }
+  }
+
+  if (
+    (provider === "anthropic" || provider === "qwencloud") &&
+    QWENCLOUD_MODELS.has(baseModel)
+  ) {
+    return { provider: "qwencloud", model: baseModel }
   }
 
   if (WRAPPED_CLAUDE_PROVIDERS.has(provider)) {

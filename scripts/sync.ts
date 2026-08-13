@@ -135,6 +135,15 @@ async function loadPricingLookup() {
     lookup.set(key, snapshot)
   }
 
+  // QwenCloud (Alibaba Model Studio) keeps the `qwencloud` provider label but
+  // publishes the same token rates as the `alibaba` provider. Mirror every
+  // alibaba catalog price onto the matching `qwencloud:*` key so the models.dev
+  // catalog stays the live source; CUSTOM_PRICING above covers the gaps.
+  for (const [key, snapshot] of [...lookup]) {
+    if (!key.startsWith("alibaba:")) continue
+    lookup.set(`qwencloud:${key.slice("alibaba:".length)}`, snapshot)
+  }
+
   console.log(`  ${catalog.length} models loaded`)
   return lookup
 }

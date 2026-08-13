@@ -40,4 +40,44 @@ describe("normalizeModelKey", () => {
       model: "claude-opus-4-6",
     })
   })
+
+  it("maps QwenCloud provider models to QwenCloud pricing keys", () => {
+    expect(normalizeModelKey("qwencloud", "qwen3.8-max")).toEqual({
+      provider: "qwencloud",
+      model: "qwen3.8-max",
+    })
+    expect(normalizeModelKey("qwencloud", "deepseek-v4-flash-0731")).toEqual({
+      provider: "qwencloud",
+      model: "deepseek-v4-flash-0731",
+    })
+    expect(normalizeModelKey("qwencloud", "glm-5.2")).toEqual({
+      provider: "qwencloud",
+      model: "glm-5.2",
+    })
+  })
+
+  it("maps Claude Code ANTHROPIC_BASE_URL rows for QwenCloud models", () => {
+    expect(normalizeModelKey("anthropic", "qwen3.7-max")).toEqual({
+      provider: "qwencloud",
+      model: "qwen3.7-max",
+    })
+    expect(normalizeModelKey("anthropic", "qwen3.8-max")).toEqual({
+      provider: "qwencloud",
+      model: "qwen3.8-max",
+    })
+  })
+
+  it("keeps native Anthropic models on the anthropic provider", () => {
+    expect(normalizeModelKey("anthropic", "claude-opus-4-6")).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-6",
+    })
+  })
+
+  it("keeps DeepSeek rows on the deepseek provider", () => {
+    expect(normalizeModelKey("deepseek", "deepseek-v4-pro")).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    })
+  })
 })

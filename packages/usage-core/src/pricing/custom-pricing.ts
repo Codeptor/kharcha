@@ -132,4 +132,34 @@ export const CUSTOM_PRICING: Record<string, PricingSnapshot> = {
     cacheReadCost: 0.5,
     cacheWriteCost: null,
   },
+
+  // Alibaba Cloud Model Studio (QwenCloud) — models served on the Anthropic-
+  // compatible endpoint that the international models.dev catalog does not
+  // list under `alibaba` but are published on the CN mirror. Per 1M tokens.
+  // The `alibaba` catalog prices are mirrored onto `qwencloud:*` keys in
+  // loadPricingLookup (scripts/sync.ts); this overrides the gaps.
+  "qwencloud:deepseek-v4-pro": {
+    inputCost: 0.435,
+    outputCost: 0.87,
+    cacheReadCost: 0.003625,
+    cacheWriteCost: null,
+  },
+  "qwencloud:deepseek-v4-flash": {
+    inputCost: 0.14,
+    outputCost: 0.28,
+    cacheReadCost: 0.0028,
+    cacheWriteCost: null,
+  },
+  "qwencloud:glm-5": {
+    inputCost: 0.86,
+    outputCost: 3.15,
+    cacheReadCost: null,
+    cacheWriteCost: null,
+  },
+  "qwencloud:glm-5.1": {
+    inputCost: 0.87,
+    outputCost: 3.48,
+    cacheReadCost: 0.17,
+    cacheWriteCost: null,
+  },
 }
