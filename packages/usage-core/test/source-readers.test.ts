@@ -120,6 +120,14 @@ describe("source readers", () => {
           cache: { read: 500 },
         },
       })
+      const failedZenRequest = JSON.stringify({
+        role: "assistant",
+        providerID: "opencode",
+        modelID: "gpt-5.6-sol",
+        cost: 0,
+        tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+        error: { name: "APIError", message: "No payment method" },
+      })
 
       db.query("insert into message values (?, ?, ?, ?)").run(
         "msg_legacy",
@@ -140,6 +148,12 @@ describe("source readers", () => {
         "assistant",
         Date.UTC(2026, 7, 9, 12),
         opencode2
+      )
+      db.query("insert into message values (?, ?, ?, ?)").run(
+        "msg_failed_zen",
+        "ses_failed_zen",
+        Date.UTC(2026, 7, 9, 12),
+        failedZenRequest
       )
     } finally {
       db.close()

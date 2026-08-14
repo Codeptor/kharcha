@@ -18,6 +18,7 @@ type OpenCodeRecord = {
     id?: string
     providerID?: string
   }
+  error?: unknown
   cost?: number
   tokens?: {
     input?: number
@@ -116,7 +117,7 @@ async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
   const content = await readFile(targetPath, "utf8")
   const parsed = JSON.parse(content) as OpenCodeRecord
   const record = parseRecord(parsed.data ?? parsed)
-  if (!record || record.role !== "assistant") return []
+  if (!record || record.role !== "assistant" || record.error) return []
 
   const provider = record.providerID ?? "opencode"
   const model = record.modelID ?? "unknown"
@@ -168,7 +169,7 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
         const timeCreated = readColumnValue(row, "time_created")
         const data = readColumnValue(row, "data")
         const record = parseRecord(typeof data === "string" ? data : "")
-        if (!record || record.role !== "assistant") continue
+        if (!record || record.role !== "assistant" || record.error) continue
 
         const provider = record.providerID ?? "opencode"
         const model = record.modelID ?? "unknown"
@@ -223,7 +224,7 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
         const timeCreated = readColumnValue(row, "time_created")
         const data = readColumnValue(row, "data")
         const record = parseRecord(typeof data === "string" ? data : "")
-        if (!record) continue
+        if (!record || record.error) continue
 
         const provider =
           record.model?.providerID ?? record.providerID ?? "opencode"
@@ -273,7 +274,7 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
     try {
       const parsed = JSON.parse(line) as OpenCodeRecord
       const record = parseRecord(parsed.data ?? parsed)
-      if (!record || record.role !== "assistant") continue
+      if (!record || record.role !== "assistant" || record.error) continue
 
       const provider = record.providerID ?? "opencode"
       const model = record.modelID ?? "unknown"

@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 
 import { db } from "./client"
 import {
@@ -242,12 +242,12 @@ export function rollupRowsByDay(rows: RollupInput[]): RollupOutput[] {
 
 export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
   const batch = parseSyncBatch(input)
-  const affectedDays = getAffectedDays(batch.rows)
+  const batchAffectedDays = getAffectedDays(batch.rows)
 
-  if (affectedDays.length === 0) {
+  if (batchAffectedDays.length === 0) {
     return {
       generatedAt: batch.generatedAt,
-      affectedDays,
+      affectedDays: batchAffectedDays,
       pricingSnapshotsInserted: 0,
       usageRowsInserted: 0,
       dailyRollupsInserted: 0,
@@ -256,6 +256,30 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
   }
 
   return db.transaction(async (tx) => {
+    // Failed OpenCode requests are persisted as assistant messages with zero
+    // counters and cost. They are not usage and should not remain after the
+    // collector begins omitting errored records.
+    const removedEmptyOpenCodeRows = await tx
+      .delete(usageRows)
+      .where(
+        and(
+          eq(usageRows.source, "opencode"),
+          sql`${usageRows.costUsd} = 0`,
+          sql`coalesce(${usageRows.inputTokens}, 0) = 0`,
+          sql`coalesce(${usageRows.outputTokens}, 0) = 0`,
+          sql`coalesce(${usageRows.cacheReadTokens}, 0) = 0`,
+          sql`coalesce(${usageRows.cacheWriteTokens}, 0) = 0`,
+          sql`coalesce(${usageRows.aggregateTokens}, 0) = 0`
+        )
+      )
+      .returning({ day: usageRows.day })
+    const affectedDays = [
+      ...new Set([
+        ...batchAffectedDays,
+        ...removedEmptyOpenCodeRows.map((row) => row.day),
+      ]),
+    ].sort((left, right) => left.localeCompare(right))
+
     if (batch.pricingSnapshots.length > 0) {
       await tx
         .insert(pricingSnapshots)
