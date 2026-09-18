@@ -30,6 +30,22 @@ export function freezePricing(input: {
     }
   }
 
+  // models.dev lists placeholder entries with no rates at all (e.g. sakana:fugu
+  // with null input and output). Those are no better than a missing match, so
+  // the row must not become a $0 estimate. A match that has an input or output
+  // rate but no cache rate still prices below; required cache-write pricing is
+  // enforced by the caller via requiresCacheWritePricing.
+  if (
+    input.pricingMatch.inputCost == null &&
+    input.pricingMatch.outputCost == null
+  ) {
+    return {
+      pricingMode: "unpriced",
+      costUsd: 0,
+      snapshot: null,
+    }
+  }
+
   const hasTokenCounters =
     input.inputTokens !== null ||
     input.outputTokens !== null ||

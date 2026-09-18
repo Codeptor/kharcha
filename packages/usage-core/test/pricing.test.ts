@@ -84,6 +84,49 @@ describe("freezePricing", () => {
     ).toBeCloseTo(10, 6)
   })
 
+  it("marks a catalog placeholder with no input or output rate as unpriced", () => {
+    expect(
+      freezePricing({
+        exactCostUsd: null,
+        pricingMatch: {
+          inputCost: null,
+          outputCost: null,
+          cacheReadCost: null,
+          cacheWriteCost: null,
+        },
+        inputTokens: 1_000_000,
+        outputTokens: 2_000_000,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      })
+    ).toEqual({
+      pricingMode: "unpriced",
+      costUsd: 0,
+      snapshot: null,
+    })
+  })
+
+  it("still estimates from input and output rates when cache rates are null", () => {
+    expect(
+      freezePricing({
+        exactCostUsd: null,
+        pricingMatch: {
+          inputCost: 2,
+          outputCost: 3,
+          cacheReadCost: null,
+          cacheWriteCost: null,
+        },
+        inputTokens: 1_000_000,
+        outputTokens: 2_000_000,
+        cacheReadTokens: 500_000,
+        cacheWriteTokens: 500_000,
+      })
+    ).toMatchObject({
+      pricingMode: "estimated",
+      costUsd: 8,
+    })
+  })
+
   it("does not mark missing token counters as a zero-dollar estimate", () => {
     expect(
       freezePricing({

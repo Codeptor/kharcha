@@ -45,6 +45,14 @@ const QWENCLOUD_MODEL_ALIASES: Record<string, string> = {
   "deepseek-v4-pro-0813": "deepseek-v4-pro",
 }
 
+// Kimi for Coding plan model ids (OpenCode) priced as the Moonshot model they
+// resolve to. The generic `kimi-for-coding` id is left alone: the plan does not
+// say which model served it, so it stays unpriced.
+const KIMI_FOR_CODING_MODELS: Record<string, string> = {
+  k2p5: "kimi-k2.5",
+  k3: "kimi-k3",
+}
+
 function normalizeAgyModel(model: string): NormalizedModelKey {
   const normalized = model
     .trim()
@@ -80,8 +88,11 @@ export function normalizeModelKey(
     return normalizeAgyModel(model)
   }
 
-  if (provider === "kimi-for-coding" && model === "k3") {
-    return { provider: "moonshotai", model: "kimi-k3" }
+  if (provider === "kimi-for-coding") {
+    const kimiModel = KIMI_FOR_CODING_MODELS[model]
+    if (kimiModel) {
+      return { provider: "moonshotai", model: kimiModel }
+    }
   }
 
   const baseModel = model.includes("/")

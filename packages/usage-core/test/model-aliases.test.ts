@@ -30,6 +30,20 @@ describe("normalizeModelKey", () => {
     })
   })
 
+  it("maps Kimi Coding k2p5 to the canonical Kimi K2.5 pricing key", () => {
+    expect(normalizeModelKey("kimi-for-coding", "k2p5")).toEqual({
+      provider: "moonshotai",
+      model: "kimi-k2.5",
+    })
+  })
+
+  it("leaves the generic Kimi Coding model id unmapped", () => {
+    expect(normalizeModelKey("kimi-for-coding", "kimi-for-coding")).toEqual({
+      provider: "kimi-for-coding",
+      model: "kimi-for-coding",
+    })
+  })
+
   it("maps AGY model variants to canonical provider pricing keys", () => {
     expect(normalizeModelKey("agy", "Gemini 3.6 Flash (High)")).toEqual({
       provider: "google",
