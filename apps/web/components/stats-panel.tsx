@@ -198,6 +198,11 @@ export function StatsPanel({
           {filteredStats.map((m) => {
             const selected = selectedModels.has(m.key)
             const dimmed = selectedModels.size > 0 && !selected
+            const unpriced = m.costUsd === 0 && m.unpricedTokens > 0
+            const unpricedNote =
+              m.unpricedTokens > 0
+                ? `${fmtTokens(m.unpricedTokens)} unpriced tokens`
+                : undefined
             return (
               <button
                 key={m.key}
@@ -216,7 +221,11 @@ export function StatsPanel({
               >
                 <span className="flex w-full min-w-0 items-center gap-2 min-[430px]:w-auto min-[430px]:flex-1">
                   <span className="inline-flex w-4 shrink-0 justify-center">
-                    <ModelIcon model={m.label} provider={m.provider} size={11} />
+                    <ModelIcon
+                      model={m.label}
+                      provider={m.provider}
+                      size={11}
+                    />
                   </span>
                   <span
                     className="min-w-0 flex-1 truncate text-[11px] text-stone-700 sm:text-[13px] dark:text-stone-300"
@@ -226,8 +235,19 @@ export function StatsPanel({
                   </span>
                 </span>
                 <span className="grid w-full grid-cols-4 gap-2 pl-6 font-mono text-[10px] text-stone-500 tabular-nums min-[430px]:flex min-[430px]:w-auto min-[430px]:shrink-0 min-[430px]:gap-3 min-[430px]:pl-0 sm:gap-8 sm:text-[12px] dark:text-stone-400">
-                  <span className="min-w-0 min-[430px]:w-10 min-[430px]:text-right sm:w-14">
-                    <span>{fmt(m.costUsd)}</span>
+                  <span
+                    className="min-w-0 min-[430px]:w-10 min-[430px]:text-right sm:w-14"
+                    title={unpricedNote}
+                  >
+                    <span
+                      className={
+                        unpriced
+                          ? "text-stone-400 dark:text-stone-600"
+                          : undefined
+                      }
+                    >
+                      {unpriced ? "unpriced" : fmt(m.costUsd)}
+                    </span>
                     <span className="mt-0.5 block text-[8px] text-stone-400 min-[430px]:hidden dark:text-stone-600">
                       total
                     </span>

@@ -37,7 +37,7 @@ export type SourceTotal = TokenTotals & {
   nonzeroTokenRows: number
 }
 
-type ChartSegment = TokenTotals & {
+export type ChartSegment = TokenTotals & {
   key: string
   label: string
   costUsd: number
@@ -85,13 +85,33 @@ function emptyTokens(): TokenTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, aggregate: 0 }
 }
 
-function tokenCount(tokens: TokenTotals): number {
+export function tokenCount(tokens: TokenTotals): number {
   return (
     tokens.input +
     tokens.output +
     tokens.cacheRead +
     tokens.cacheWrite +
     tokens.aggregate
+  )
+}
+
+// Exactly $0 (a rounded-down fraction still counts as priced) with tokens that
+// had no published rate.
+export function isUnpricedSegment(
+  seg: Pick<ChartSegment, "costUsd" | "modeTotals">
+): boolean {
+  return (
+    seg.costUsd === 0 &&
+    seg.modeTotals.some((m) => m.mode === "unpriced" && tokenCount(m) > 0)
+  )
+}
+
+// Cost desc, then tokens desc so $0 segments do not all tie.
+export function sortSegmentsByCost<T extends TokenTotals & { costUsd: number }>(
+  segments: readonly T[]
+): T[] {
+  return [...segments].sort(
+    (a, b) => b.costUsd - a.costUsd || tokenCount(b) - tokenCount(a)
   )
 }
 

@@ -193,12 +193,18 @@ export function computeModelStats(days: DashboardData["days"]): ModelStat[] {
       unpricedTokens: entry.unpricedTokens,
       activeDays,
       avgPerActiveDay: activeDays > 0 ? entry.costUsd / activeDays : 0,
-      costPerMillionTokens: costPerMillion(entry.costUsd, tokens),
+      // $0 over unpriced tokens means the rate is unknown, so report null.
+      costPerMillionTokens:
+        entry.costUsd === 0 && entry.unpricedTokens > 0
+          ? null
+          : costPerMillion(entry.costUsd, tokens),
       share: grandTotal > 0 ? entry.costUsd / grandTotal : 0,
     })
   }
 
-  return stats.sort((a, b) => b.costUsd - a.costUsd)
+  return stats.sort(
+    (a, b) => b.costUsd - a.costUsd || b.totalTokens - a.totalTokens
+  )
 }
 
 export function computeUsageMetrics(days: DashboardData["days"]): UsageMetrics {

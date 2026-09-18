@@ -8,7 +8,12 @@ import {
   useEffect,
   useSyncExternalStore,
 } from "react"
-import type { DashboardData } from "@/lib/dashboard/chart-shape"
+import {
+  type DashboardData,
+  isUnpricedSegment,
+  sortSegmentsByCost,
+  tokenCount,
+} from "@/lib/dashboard/chart-shape"
 import {
   computeStreaks,
   computeModelStats,
@@ -366,17 +371,20 @@ export function Dashboard({ data }: { data: DashboardData }) {
   }, [])
 
   const providers = useMemo(() => {
-    const map = new Map<string, number>()
+    const map = new Map<string, { costUsd: number; tokens: number }>()
     for (const day of filteredDays) {
       for (const seg of day.segments) {
         const p = seg.key.split(":")[0]!
-        map.set(p, (map.get(p) ?? 0) + seg.costUsd)
+        const cur = map.get(p) ?? { costUsd: 0, tokens: 0 }
+        cur.costUsd += seg.costUsd
+        cur.tokens += tokenCount(seg)
+        map.set(p, cur)
       }
     }
     return [...map.entries()]
-      .map(([provider, costUsd]) => ({ provider, costUsd }))
-      .filter((p) => p.costUsd >= 0.01)
-      .sort((a, b) => b.costUsd - a.costUsd)
+      .map(([provider, { costUsd, tokens }]) => ({ provider, costUsd, tokens }))
+      .filter((p) => p.costUsd >= 0.01 || p.tokens > 0)
+      .sort((a, b) => b.costUsd - a.costUsd || b.tokens - a.tokens)
   }, [filteredDays])
 
   const peakIndex = useMemo(() => {
@@ -404,7 +412,8 @@ export function Dashboard({ data }: { data: DashboardData }) {
   const uniqueModels = useMemo(() => {
     const s = new Set<string>()
     for (const day of filteredDays)
-      for (const seg of day.segments) if (seg.costUsd > 0) s.add(seg.key)
+      for (const seg of day.segments)
+        if (seg.costUsd > 0 || tokenCount(seg) > 0) s.add(seg.key)
     return s.size
   }, [filteredDays])
 
@@ -420,9 +429,7 @@ export function Dashboard({ data }: { data: DashboardData }) {
 
   const sorted = useMemo(() => {
     if (!activeDay) return []
-    return [...activeDay.segments]
-      .sort((a, b) => b.costUsd - a.costUsd)
-      .slice(0, 8)
+    return sortSegmentsByCost(activeDay.segments).slice(0, 8)
   }, [activeDay])
 
   const resolveIndex = useCallback(
@@ -931,37 +938,50 @@ export function Dashboard({ data }: { data: DashboardData }) {
               className="flex flex-col gap-1 transition-opacity duration-200 sm:gap-1.5"
               style={{ opacity: sorted.length > 0 ? 1 : 0 }}
             >
-              {sorted.map((seg, i) => (
-                <div
-                  key={seg.key}
-                  className="flex animate-in items-center whitespace-nowrap fade-in slide-in-from-bottom-1"
-                  style={{
-                    animationDelay: `${i * 30}ms`,
-                    animationFillMode: "both",
-                  }}
-                >
-                  <span className="inline-flex w-4 justify-center sm:w-5">
-                    <ModelIcon model={seg.label} provider={providerFromKey(seg.key)} size={12} />
-                  </span>
-                  <span
-                    className="inline-block w-28 truncate text-[11px] text-stone-700 sm:w-44 sm:text-[13px] dark:text-stone-300"
-                    style={{ fontFamily: "var(--font-display)" }}
+              {sorted.map((seg, i) => {
+                const unpriced = isUnpricedSegment(seg)
+                return (
+                  <div
+                    key={seg.key}
+                    className="flex animate-in items-center whitespace-nowrap fade-in slide-in-from-bottom-1"
+                    style={{
+                      animationDelay: `${i * 30}ms`,
+                      animationFillMode: "both",
+                    }}
                   >
-                    {displayModel(seg.label)}
-                  </span>
-                  <span className="inline-block w-16 text-right font-mono text-[11px] text-stone-500 tabular-nums sm:w-20 sm:text-[13px] dark:text-stone-400">
-                    {fmt(seg.costUsd)}
-                  </span>
-                  <span className="inline-block w-16 text-right font-mono text-[10px] text-stone-400 tabular-nums sm:w-20 sm:text-[12px] dark:text-stone-500">
-                    {fmtTokens(
-                      seg.input + seg.output + seg.cacheRead + seg.cacheWrite
-                    )}
-                  </span>
-                  <span className="inline-flex w-5 justify-end sm:w-6">
-                    <ProviderIcon name={seg.source} size={11} />
-                  </span>
-                </div>
-              ))}
+                    <span className="inline-flex w-4 justify-center sm:w-5">
+                      <ModelIcon
+                        model={seg.label}
+                        provider={providerFromKey(seg.key)}
+                        size={12}
+                      />
+                    </span>
+                    <span
+                      className="inline-block w-28 truncate text-[11px] text-stone-700 sm:w-44 sm:text-[13px] dark:text-stone-300"
+                      style={{ fontFamily: "var(--font-display)" }}
+                    >
+                      {displayModel(seg.label)}
+                    </span>
+                    <span
+                      className={`inline-block w-16 text-right font-mono text-[11px] tabular-nums sm:w-20 sm:text-[13px] ${
+                        unpriced
+                          ? "text-stone-400 dark:text-stone-600"
+                          : "text-stone-500 dark:text-stone-400"
+                      }`}
+                    >
+                      {unpriced ? "unpriced" : fmt(seg.costUsd)}
+                    </span>
+                    <span className="inline-block w-16 text-right font-mono text-[10px] text-stone-400 tabular-nums sm:w-20 sm:text-[12px] dark:text-stone-500">
+                      {fmtTokens(
+                        seg.input + seg.output + seg.cacheRead + seg.cacheWrite
+                      )}
+                    </span>
+                    <span className="inline-flex w-5 justify-end sm:w-6">
+                      <ProviderIcon name={seg.source} size={11} />
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
@@ -1025,7 +1045,9 @@ export function Dashboard({ data }: { data: DashboardData }) {
                   {p.provider}
                 </span>
                 <span className="font-mono text-[10px] text-stone-500 sm:text-[11px] dark:text-stone-500">
-                  {fmt(p.costUsd)}
+                  {p.costUsd === 0 && p.tokens > 0
+                    ? "unpriced"
+                    : fmt(p.costUsd)}
                 </span>
                 {i < providers.length - 1 && (
                   <span className="ml-1 hidden text-stone-300 sm:ml-3 sm:inline dark:text-stone-700">
