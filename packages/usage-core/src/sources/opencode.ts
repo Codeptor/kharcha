@@ -145,6 +145,130 @@ async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
   ]
 }
 
+type SqliteRow = Record<string, unknown>
+
+function numberColumn(row: SqliteRow, key: string): number | null {
+  const value = row[key]
+  return typeof value === "number" ? value : null
+}
+
+function textColumn(row: SqliteRow, key: string): string | null {
+  const value = row[key]
+  return typeof value === "string" ? value : null
+}
+
+// Mirrors the truthiness JSON.parse(data).error would have: json_type is
+// null for a missing key and json_extract yields 1/0 for true/false.
+function hasError(row: SqliteRow): boolean {
+  switch (row.error_type) {
+    case "object":
+    case "array":
+    case "true":
+      return true
+    case "text":
+      return row.error_value !== ""
+    case "integer":
+    case "real":
+      return row.error_value !== 0
+    default:
+      return false
+  }
+}
+
+function sumOutputTokens(
+  output: number | null,
+  reasoning: number | null
+): number | null {
+  if (output === null && reasoning === null) return null
+  return (output ?? 0) + (reasoning ?? 0)
+}
+
+function sessionKey(row: SqliteRow, targetPath: string): string {
+  return textColumn(row, "session_id") ?? textColumn(row, "id") ?? targetPath
+}
+
+function sqliteSlice(
+  row: SqliteRow,
+  provider: string,
+  model: string,
+  sessionId: string
+): UsageSlice {
+  const normalized = normalizeModelKey(provider, model)
+  const timeCreated = readColumnValue(row, "time_created")
+  const cost = numberColumn(row, "cost")
+
+  return {
+    source: "opencode",
+    provider: normalized.provider,
+    model: normalized.model,
+    day: toDay(timeCreated ?? readColumnValue(row, "created_at") ?? undefined),
+    startedAt:
+      typeof timeCreated === "number"
+        ? new Date(timeCreated).toISOString()
+        : null,
+    inputTokens: numberColumn(row, "input_tokens"),
+    outputTokens: sumOutputTokens(
+      numberColumn(row, "output_tokens"),
+      numberColumn(row, "reasoning_tokens")
+    ),
+    cacheReadTokens: numberColumn(row, "cache_read_tokens"),
+    cacheWriteTokens: numberColumn(row, "cache_write_tokens"),
+    exactCostUsd: cost !== null && cost > 0 ? cost : null,
+    sourceSessionHash: hashSessionId(sessionId),
+  }
+}
+
+// Only scalars leave SQLite; the data blob (up to 10 MB a row) is parsed
+// once per row by the JSON functions and never copied into JS. cost keeps
+// its numeric check because json_extract turns true into 1.
+const usageColumns = `
+  id,
+  session_id,
+  time_created,
+  json_extract(data, '$.providerID') as provider_id,
+  json_extract(data, '$.modelID') as model_id,
+  json_extract(data, '$.model.providerID') as model_provider_id,
+  json_extract(data, '$.model.id') as model_model_id,
+  iif(
+    json_type(data, '$.cost') in ('integer', 'real'),
+    json_extract(data, '$.cost'),
+    null
+  ) as cost,
+  json_extract(data, '$.tokens.input') as input_tokens,
+  json_extract(data, '$.tokens.output') as output_tokens,
+  json_extract(data, '$.tokens.reasoning') as reasoning_tokens,
+  json_extract(data, '$.tokens.cache.read') as cache_read_tokens,
+  json_extract(data, '$.tokens.cache.write') as cache_write_tokens,
+  json_extract(data, '$.time.created') as created_at,
+  json_type(data, '$.error') as error_type,
+  json_extract(data, '$.error') as error_value
+`
+
+// json_extract and json_type raise on malformed JSON and SQLite does not
+// define the order AND terms run in, so iif() (a CASE) makes json_valid gate
+// the checks that read the document.
+const messageQuery = `
+  select ${usageColumns}
+  from message
+  where iif(json_valid(data), json_extract(data, '$.role') = 'assistant', 0)
+`
+
+function sessionMessageQuery(excludeLegacySessions: boolean): string {
+  return `
+    select ${usageColumns}
+    from session_message
+    where type = 'assistant'
+      and iif(json_valid(data), json_type(data) = 'object', 0)
+      ${
+        excludeLegacySessions
+          ? `and not exists (
+              select 1 from message where message.session_id = session_message.session_id
+            )`
+          : ""
+      }
+  `
+}
+
 function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
   const rows: UsageSlice[] = []
   const db = new Database(targetPath, { readonly: true })
@@ -161,98 +285,38 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
     )
 
     if (tables.has("message")) {
-      for (const row of db
-        .query("select id, session_id, time_created, data from message")
-        .all() as Array<Record<string, unknown>>) {
-        const id = readColumnValue(row, "id")
-        const sessionId = readColumnValue(row, "session_id")
-        const timeCreated = readColumnValue(row, "time_created")
-        const data = readColumnValue(row, "data")
-        const record = parseRecord(typeof data === "string" ? data : "")
-        if (!record || record.role !== "assistant" || record.error) continue
+      for (const row of db.query<SqliteRow, []>(messageQuery).iterate()) {
+        if (hasError(row)) continue
 
-        const provider = record.providerID ?? "opencode"
-        const model = record.modelID ?? "unknown"
-        const normalized = normalizeModelKey(provider, model)
-        const tokens = record.tokens ?? {}
-
-        rows.push({
-          source: "opencode",
-          provider: normalized.provider,
-          model: normalized.model,
-          day: toDay(timeCreated ?? record.time?.created ?? undefined),
-          startedAt:
-            typeof timeCreated === "number"
-              ? new Date(timeCreated).toISOString()
-              : null,
-          inputTokens: tokens.input ?? null,
-          outputTokens: outputTokens(tokens),
-          cacheReadTokens: tokens.cache?.read ?? null,
-          cacheWriteTokens: tokens.cache?.write ?? null,
-          exactCostUsd:
-            typeof record.cost === "number" && record.cost > 0
-              ? record.cost
-              : null,
-          sourceSessionHash: hashSessionId(
-            typeof sessionId === "string"
-              ? sessionId
-              : typeof id === "string"
-                ? id
-                : targetPath
-          ),
-        })
+        rows.push(
+          sqliteSlice(
+            row,
+            textColumn(row, "provider_id") ?? "opencode",
+            textColumn(row, "model_id") ?? "unknown",
+            sessionKey(row, targetPath)
+          )
+        )
       }
     }
 
     if (tables.has("session_message")) {
-      const query = tables.has("message")
-        ? `
-          select id, session_id, time_created, data
-          from session_message
-          where type = 'assistant'
-            and not exists (
-              select 1 from message where message.session_id = session_message.session_id
-            )
-        `
-        : "select id, session_id, time_created, data from session_message where type = 'assistant'"
+      const query = sessionMessageQuery(tables.has("message"))
 
-      for (const row of db.query(query).all() as Array<
-        Record<string, unknown>
-      >) {
-        const id = readColumnValue(row, "id")
-        const sessionId = readColumnValue(row, "session_id")
-        const timeCreated = readColumnValue(row, "time_created")
-        const data = readColumnValue(row, "data")
-        const record = parseRecord(typeof data === "string" ? data : "")
-        if (!record || record.error) continue
+      for (const row of db.query<SqliteRow, []>(query).iterate()) {
+        if (hasError(row)) continue
 
-        const provider =
-          record.model?.providerID ?? record.providerID ?? "opencode"
-        const model = record.model?.id ?? record.modelID ?? "unknown"
-        const normalized = normalizeModelKey(provider, model)
-        const tokens = record.tokens ?? {}
-
-        rows.push({
-          source: "opencode",
-          provider: normalized.provider,
-          model: normalized.model,
-          day: toDay(timeCreated ?? record.time?.created ?? undefined),
-          startedAt:
-            typeof timeCreated === "number"
-              ? new Date(timeCreated).toISOString()
-              : null,
-          inputTokens: tokens.input ?? null,
-          outputTokens: outputTokens(tokens),
-          cacheReadTokens: tokens.cache?.read ?? null,
-          cacheWriteTokens: tokens.cache?.write ?? null,
-          exactCostUsd:
-            typeof record.cost === "number" && record.cost > 0
-              ? record.cost
-              : null,
-          sourceSessionHash: hashSessionId(
-            `opencode2:${typeof sessionId === "string" ? sessionId : typeof id === "string" ? id : targetPath}`
-          ),
-        })
+        rows.push(
+          sqliteSlice(
+            row,
+            textColumn(row, "model_provider_id") ??
+              textColumn(row, "provider_id") ??
+              "opencode",
+            textColumn(row, "model_model_id") ??
+              textColumn(row, "model_id") ??
+              "unknown",
+            `opencode2:${sessionKey(row, targetPath)}`
+          )
+        )
       }
     }
   } finally {

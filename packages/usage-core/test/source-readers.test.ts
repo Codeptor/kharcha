@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
+import { createHash } from "node:crypto"
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -170,6 +171,148 @@ describe("source readers", () => {
           exactCostUsd: 0.12,
         })
       )
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps OpenCode SQLite rows with a null error and skips errored, malformed, and user rows", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kharcha-opencode-"))
+    const databasePath = join(directory, "opencode.db")
+    const db = new Database(databasePath)
+    const at = Date.UTC(2026, 7, 9, 12)
+
+    try {
+      db.run(`
+        create table message (
+          id text primary key,
+          session_id text not null,
+          time_created integer not null,
+          data text not null
+        );
+      `)
+      const insert = db.query("insert into message values (?, ?, ?, ?)")
+      insert.run(
+        "msg_null_error",
+        "ses_a",
+        at,
+        JSON.stringify({
+          role: "assistant",
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+          error: null,
+          cost: 0,
+          tokens: { input: 10, cache: { read: 5, write: 0 } },
+        })
+      )
+      insert.run(
+        "msg_object_error",
+        "ses_a",
+        at,
+        JSON.stringify({
+          role: "assistant",
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+          error: { name: "APIError", message: "boom" },
+          cost: 0.5,
+          tokens: { input: 10, output: 5 },
+        })
+      )
+      insert.run("msg_malformed", "ses_a", at, '{"role":"assistant",')
+      insert.run(
+        "msg_user",
+        "ses_a",
+        at,
+        JSON.stringify({
+          role: "user",
+          providerID: "anthropic",
+          modelID: "claude-opus-4-6",
+          tokens: { input: 1, output: 1 },
+        })
+      )
+    } finally {
+      db.close()
+    }
+
+    try {
+      expect(await readOpenCodeUsage(databasePath)).toEqual([
+        {
+          source: "opencode",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+          day: "2026-08-09",
+          startedAt: "2026-08-09T12:00:00.000Z",
+          inputTokens: 10,
+          outputTokens: null,
+          cacheReadTokens: 5,
+          cacheWriteTokens: 0,
+          exactCostUsd: null,
+          sourceSessionHash: createHash("sha256").update("ses_a").digest("hex"),
+        },
+      ])
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("reads OpenCode2 session messages when there is no legacy message table", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kharcha-opencode-"))
+    const databasePath = join(directory, "opencode.db")
+    const db = new Database(databasePath)
+    const at = Date.UTC(2026, 7, 9, 12)
+
+    try {
+      db.run(`
+        create table session_message (
+          id text primary key,
+          session_id text not null,
+          type text not null,
+          time_created integer not null,
+          data text not null
+        );
+      `)
+      const insert = db.query(
+        "insert into session_message values (?, ?, ?, ?, ?)"
+      )
+      insert.run(
+        "msg_assistant",
+        "ses_v2",
+        "assistant",
+        at,
+        JSON.stringify({
+          model: { providerID: "openai", id: "gpt-5.6" },
+          cost: 0.03,
+          tokens: {
+            input: 100,
+            output: 20,
+            reasoning: 30,
+            cache: { read: 0, write: 40 },
+          },
+        })
+      )
+      insert.run("msg_user", "ses_v2", "user", at, JSON.stringify({}))
+    } finally {
+      db.close()
+    }
+
+    try {
+      expect(await readOpenCodeUsage(databasePath)).toEqual([
+        {
+          source: "opencode",
+          provider: "openai",
+          model: "gpt-5.6",
+          day: "2026-08-09",
+          startedAt: "2026-08-09T12:00:00.000Z",
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 40,
+          exactCostUsd: 0.03,
+          sourceSessionHash: createHash("sha256")
+            .update("opencode2:ses_v2")
+            .digest("hex"),
+        },
+      ])
     } finally {
       await rm(directory, { force: true, recursive: true })
     }
