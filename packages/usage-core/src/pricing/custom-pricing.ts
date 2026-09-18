@@ -124,6 +124,16 @@ export const CUSTOM_PRICING: Record<string, PricingSnapshot> = {
     cacheWriteCost: null,
   },
 
+  // Moonshot AI (Kimi) API pricing; models.dev dropped kimi-k2.5, which is what
+  // the Kimi CLI reports. No published cache-write rate.
+  // https://platform.moonshot.ai/docs/pricing/chat
+  "moonshotai:kimi-k2.5": {
+    inputCost: 0.6,
+    outputCost: 3,
+    cacheReadCost: 0.1,
+    cacheWriteCost: null,
+  },
+
   // Sakana Fugu Ultra fixed token pricing:
   // https://sakana.ai/fugu/
   "sakana:fugu-ultra": {

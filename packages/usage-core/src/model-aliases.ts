@@ -6,7 +6,10 @@ const WRAPPED_CLAUDE_PROVIDERS = new Set([
   "opencode",
 ])
 
-const PROVIDER_ALIASES: Record<string, string> = {}
+// Second Modal account seen in OpenCode; same catalog and rates as `modal`.
+const PROVIDER_ALIASES: Record<string, string> = {
+  modal2: "modal",
+}
 
 // Models served through Alibaba Model Studio's Anthropic-compatible endpoint
 // (openCode provider `qwencloud`, or Claude Code via ANTHROPIC_BASE_URL which
@@ -36,6 +39,11 @@ const QWENCLOUD_MODELS = new Set([
   "wan2.7-image",
   "wan2.7-image-pro",
 ])
+
+// Dated QwenCloud snapshots priced as the model they snapshot.
+const QWENCLOUD_MODEL_ALIASES: Record<string, string> = {
+  "deepseek-v4-pro-0813": "deepseek-v4-pro",
+}
 
 function normalizeAgyModel(model: string): NormalizedModelKey {
   const normalized = model
@@ -83,11 +91,12 @@ export function normalizeModelKey(
     return { provider: "meta", model: baseModel }
   }
 
+  const qwencloudModel = QWENCLOUD_MODEL_ALIASES[baseModel] ?? baseModel
   if (
     (provider === "anthropic" || provider === "qwencloud") &&
-    QWENCLOUD_MODELS.has(baseModel)
+    QWENCLOUD_MODELS.has(qwencloudModel)
   ) {
-    return { provider: "qwencloud", model: baseModel }
+    return { provider: "qwencloud", model: qwencloudModel }
   }
 
   if (WRAPPED_CLAUDE_PROVIDERS.has(provider)) {

@@ -74,6 +74,24 @@ describe("normalizeModelKey", () => {
     })
   })
 
+  it("maps dated QwenCloud DeepSeek snapshots to the base model", () => {
+    expect(normalizeModelKey("qwencloud", "deepseek-v4-pro-0813")).toEqual({
+      provider: "qwencloud",
+      model: "deepseek-v4-pro",
+    })
+    expect(normalizeModelKey("anthropic", "deepseek-v4-pro-0813")).toEqual({
+      provider: "qwencloud",
+      model: "deepseek-v4-pro",
+    })
+  })
+
+  it("maps the second Modal account onto modal pricing keys", () => {
+    expect(normalizeModelKey("modal2", "moonshotai/Kimi-K3")).toEqual({
+      provider: "modal",
+      model: "moonshotai/Kimi-K3",
+    })
+  })
+
   it("keeps DeepSeek rows on the deepseek provider", () => {
     expect(normalizeModelKey("deepseek", "deepseek-v4-pro")).toEqual({
       provider: "deepseek",

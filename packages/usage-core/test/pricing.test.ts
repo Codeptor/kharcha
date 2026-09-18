@@ -134,6 +134,37 @@ describe("custom pricing", () => {
     // 1M*$5 input + 1M*$30 output + 1M*$0.50 cache-read = $35.50
     expect(row?.costUsd).toBeCloseTo(35.5, 6)
   })
+
+  it("prices Kimi CLI K2.5 rows (dropped from models.dev) from the Moonshot override", async () => {
+    const lookup = new Map(Object.entries(CUSTOM_PRICING))
+    const batch = await buildSyncBatch(
+      [
+        {
+          source: "kimi",
+          provider: "moonshotai",
+          model: "kimi-k2.5",
+          day: "2026-09-01",
+          startedAt: null,
+          inputTokens: 1_000_000,
+          outputTokens: 1_000_000,
+          cacheReadTokens: 1_000_000,
+          cacheWriteTokens: null,
+          exactCostUsd: null,
+          sourceSessionHash: "kimi-1",
+        },
+      ],
+      lookup
+    )
+
+    const row = batch.rows[0]
+    expect(row).toMatchObject({
+      provider: "moonshotai",
+      model: "kimi-k2.5",
+      pricingMode: "estimated",
+    })
+    // 1M*$0.60 input + 1M*$3 output + 1M*$0.10 cache-read = $3.70
+    expect(row?.costUsd).toBeCloseTo(3.7, 6)
+  })
 })
 
 describe("parseModelsDevCatalog", () => {
