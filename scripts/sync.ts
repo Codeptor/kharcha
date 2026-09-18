@@ -7,10 +7,11 @@ import {
   fetchModelsDevCatalog,
   readClaudeCodeUsage,
   readAgyUsage,
-  readCodexUsage,
+  readCodexRollouts,
   readKimiUsage,
   readOpenCodeUsage,
   toPricingSnapshot,
+  type UsageSlice,
 } from "../packages/usage-core/src/index.ts"
 
 const dryRun = process.argv.includes("--dry-run")
@@ -146,9 +147,26 @@ async function loadPricingLookup() {
   return lookup
 }
 
+// A reader returns its rows, or rows plus a detail suffix for the log line.
+type SourceRead = UsageSlice[] | { rows: UsageSlice[]; detail: string }
+
+type SourceTarget = {
+  name: string
+  path: string
+  reader: (path: string) => Promise<SourceRead>
+}
+
 async function loadUsageRows() {
   const home = process.env.HOME ?? ""
-  const targets = [
+  // Codex rollouts are append-only and add up to tens of GB; the cache keeps
+  // the per-file outcome so an hourly sync only re-reads files that grew.
+  const codexCachePath =
+    process.env.CODEX_CACHE_PATH ??
+    join(
+      process.env.XDG_CACHE_HOME ?? join(home, ".cache"),
+      "kharcha/codex-rollouts.json"
+    )
+  const targets: SourceTarget[] = [
     {
       name: "Claude Code",
       path: process.env.CLAUDE_CODE_PATH ?? join(home, ".claude/projects"),
@@ -157,7 +175,15 @@ async function loadUsageRows() {
     {
       name: "Codex",
       path: process.env.CODEX_PATH ?? join(home, ".codex"),
-      reader: readCodexUsage,
+      reader: async (path) => {
+        const { rows, filesRead, filesCached } = await readCodexRollouts(path, {
+          cachePath: codexCachePath,
+        })
+        return {
+          rows,
+          detail: `(${filesRead} files read, ${filesCached} cached)`,
+        }
+      },
     },
     {
       name: "OpenCode",
@@ -178,17 +204,19 @@ async function loadUsageRows() {
         join(home, ".gemini/antigravity-cli/kharcha-usage.jsonl"),
       reader: readAgyUsage,
     },
-  ] as const
+  ]
 
-  const rows = []
+  const rows: UsageSlice[] = []
   for (const target of targets) {
     if (!(await pathExists(target.path))) {
       console.log(`  ${target.name}: skipped (${target.path} not found)`)
       continue
     }
     const result = await target.reader(target.path)
-    console.log(`  ${target.name}: ${result.length} rows`)
-    rows.push(...result)
+    const sourceRows = Array.isArray(result) ? result : result.rows
+    const detail = Array.isArray(result) ? "" : ` ${result.detail}`
+    console.log(`  ${target.name}: ${sourceRows.length} rows${detail}`)
+    rows.push(...sourceRows)
   }
 
   // Native Windows Claude installs (when syncing from WSL). Session IDs are globally

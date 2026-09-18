@@ -19,6 +19,10 @@ bun run agy:install
   creates idempotent sync batches.
 - `scripts/sync.ts` reads every configured source, fetches the live models.dev
   catalog, applies explicit official-price overrides, and posts to the web app.
+- The Codex reader caches each rollout's outcome (keys, anchors, emitted turns)
+  in `$XDG_CACHE_HOME/kharcha/codex-rollouts.json` (override with
+  `CODEX_CACHE_PATH`) so an hourly sync only re-reads files that grew. Delete
+  the file to force a cold read.
 - `apps/web` stores deduplicated usage rows and frozen pricing snapshots in
   Postgres, then serves the dashboard from materialized daily rollups.
 
