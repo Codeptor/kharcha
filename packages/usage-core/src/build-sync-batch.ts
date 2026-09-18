@@ -89,6 +89,7 @@ export async function buildSyncBatch(
             outputTokens: row.outputTokens,
             cacheReadTokens: row.cacheReadTokens,
             cacheWriteTokens: row.cacheWriteTokens,
+            cacheWrite1hTokens: row.cacheWrite1hTokens ?? null,
           })
 
     const dedupeKey = createHash("sha256")

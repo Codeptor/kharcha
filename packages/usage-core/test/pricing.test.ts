@@ -45,6 +45,45 @@ describe("freezePricing", () => {
     })
   })
 
+  it("bills 1-hour cache writes at 2x input and the rest at the catalog rate", () => {
+    expect(
+      freezePricing({
+        exactCostUsd: null,
+        pricingMatch: {
+          inputCost: 5,
+          outputCost: 25,
+          cacheReadCost: 0.5,
+          cacheWriteCost: 6.25,
+        },
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 1_000_000,
+        cacheWrite1hTokens: 600_000,
+      }).costUsd
+      // 0.4M*$6.25 (5-minute) + 0.6M*$10 (1-hour, 2x input) = $8.50
+    ).toBeCloseTo(8.5, 6)
+  })
+
+  it("clamps 1-hour cache writes to the cache-write total", () => {
+    expect(
+      freezePricing({
+        exactCostUsd: null,
+        pricingMatch: {
+          inputCost: 5,
+          outputCost: 25,
+          cacheReadCost: 0.5,
+          cacheWriteCost: 6.25,
+        },
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 1_000_000,
+        cacheWrite1hTokens: 2_000_000,
+      }).costUsd
+    ).toBeCloseTo(10, 6)
+  })
+
   it("does not mark missing token counters as a zero-dollar estimate", () => {
     expect(
       freezePricing({

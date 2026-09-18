@@ -11,7 +11,7 @@
     "bun-types": "^1.3.10"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit --moduleResolution bundler --module esnext --target esnext --lib esnext,dom --types bun-types,node src/index.ts src/model-aliases.ts src/types.ts src/pricing/freeze-pricing.ts src/pricing/models-dev.ts src/sources/claude-code.ts src/sources/codex.ts src/sources/opencode.ts test/model-aliases.test.ts test/pricing.test.ts test/source-readers.test.ts test/smoke.test.ts"
+    "typecheck": "bunx tsc --noEmit --moduleResolution bundler --module esnext --target esnext --lib esnext,dom --types bun-types,node src/index.ts src/model-aliases.ts src/types.ts src/pricing/freeze-pricing.ts src/pricing/models-dev.ts src/sources/claude-code.ts src/sources/codex.ts src/sources/opencode.ts test/build-sync-batch.test.ts test/model-aliases.test.ts test/pricing.test.ts test/source-readers.test.ts test/smoke.test.ts"
   },
   "exports": {
     ".": "./src/index.ts"

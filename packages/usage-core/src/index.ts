@@ -16,7 +16,6 @@ export type {
   SyncPricingSnapshot,
 } from "./build-sync-batch"
 export { readClaudeCodeUsage } from "./sources/claude-code"
-export { readClaudeStatsCache } from "./sources/claude-code-cache"
 export { readCodexUsage } from "./sources/codex"
 export { readOpenCodeUsage } from "./sources/opencode"
 export { readKimiUsage } from "./sources/kimi"

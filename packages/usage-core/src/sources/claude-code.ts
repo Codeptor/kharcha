@@ -8,13 +8,18 @@ import type { UsageSlice } from "../types"
 type ClaudeSessionLine = {
   timestamp?: string
   sessionId?: string
+  requestId?: string
   message?: {
+    id?: string
     model?: string
     usage?: {
       input_tokens?: number
       output_tokens?: number
       cache_read_input_tokens?: number
       cache_creation_input_tokens?: number
+      cache_creation?: {
+        ephemeral_1h_input_tokens?: number
+      }
     }
   }
 }
@@ -75,9 +80,17 @@ async function* streamFileLines(filePath: string): AsyncGenerator<string> {
   }
 }
 
+// One API response is logged as several lines (one per content block) that
+// share message.id and requestId and repeat the same final usage.
+function responseKey(line: ClaudeSessionLine): string | null {
+  const messageId = line.message?.id
+  return messageId ? `${messageId}:${line.requestId ?? ""}` : null
+}
+
 export async function readClaudeCodeUsage(targetPath: string): Promise<UsageSlice[]> {
   const files = await collectJsonlFiles(targetPath)
   const rows: UsageSlice[] = []
+  const seen = new Set<string>()
 
   for (const file of files) {
     for await (const line of streamFileLines(file)) {
@@ -85,6 +98,12 @@ export async function readClaudeCodeUsage(targetPath: string): Promise<UsageSlic
       const parsed = parseClaudeLine(line)
       const model = parsed?.message?.model
       if (!parsed || !model || model === "<synthetic>") continue
+
+      const key = responseKey(parsed)
+      if (key) {
+        if (seen.has(key)) continue
+        seen.add(key)
+      }
 
       const normalized = normalizeModelKey("anthropic", model)
       const usage = parsed.message?.usage
@@ -98,6 +117,7 @@ export async function readClaudeCodeUsage(targetPath: string): Promise<UsageSlic
         outputTokens: usage?.output_tokens ?? null,
         cacheReadTokens: usage?.cache_read_input_tokens ?? null,
         cacheWriteTokens: usage?.cache_creation_input_tokens ?? null,
+        cacheWrite1hTokens: usage?.cache_creation?.ephemeral_1h_input_tokens ?? null,
         exactCostUsd: null,
         sourceSessionHash: hashSessionId(parsed.sessionId ?? file),
       })

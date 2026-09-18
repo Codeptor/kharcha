@@ -62,6 +62,45 @@ describe("buildSyncBatch", () => {
     })
   })
 
+  it("prices 1-hour cache writes from the row counter and keeps the write total", async () => {
+    const batch = await buildSyncBatch(
+      [
+        {
+          source: "claude-code",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+          day: "2026-09-15",
+          startedAt: "2026-09-15T04:32:40.607Z",
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 1_000_000,
+          cacheWrite1hTokens: 1_000_000,
+          exactCostUsd: null,
+          sourceSessionHash: "claude-1h",
+        },
+      ],
+      new Map([
+        [
+          "anthropic:claude-opus-4-8",
+          {
+            inputCost: 5,
+            outputCost: 25,
+            cacheReadCost: 0.5,
+            cacheWriteCost: 6.25,
+          },
+        ],
+      ])
+    )
+
+    expect(batch.rows[0]).toMatchObject({
+      costUsd: 10,
+      pricingMode: "estimated",
+      cacheWriteTokens: 1_000_000,
+    })
+    expect(batch.rows[0]).not.toHaveProperty("cacheWrite1hTokens")
+  })
+
   it("keeps aggregate goal tokens unpriced without a token-class split", async () => {
     const batch = await buildSyncBatch(
       [

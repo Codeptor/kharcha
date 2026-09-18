@@ -1,10 +1,9 @@
 import { describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { readClaudeCodeUsage } from "../src/sources/claude-code"
-import { parseCcusageCodexDaily } from "../src/sources/codex"
 import { readOpenCodeUsage } from "../src/sources/opencode"
 import { readAgyUsage } from "../src/sources/agy"
 
@@ -17,63 +16,51 @@ describe("source readers", () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]?.provider).toBe("anthropic")
     expect(rows[0]?.model).toBe("claude-opus-4-6")
+    expect(rows[0]?.cacheWrite1hTokens).toBeNull()
   })
 
-  it("uses ccusage Codex totals as model-priced rows", () => {
-    const rows = parseCcusageCodexDaily({
-      daily: [
-        {
-          date: "2026-07-26",
-          models: {
-            "gpt-5.3-codex-spark": {
-              inputTokens: 100_259,
-              outputTokens: 23_145,
-              cacheReadTokens: 726_272,
-              cacheCreationTokens: 0,
-              totalTokens: 849_676,
-            },
-            "gpt-5.6-luna": {
-              inputTokens: 11_248_873,
-              outputTokens: 1_574_102,
-              cacheReadTokens: 903_218_688,
-              cacheCreationTokens: 0,
-              totalTokens: 916_041_663,
-            },
-          },
-        },
-      ],
-    })
-
-    expect(rows).toHaveLength(2)
-    expect(rows).toContainEqual(
-      expect.objectContaining({
-        model: "gpt-5.6-luna",
-        inputTokens: 11_248_873,
-        outputTokens: 1_574_102,
-        cacheReadTokens: 903_218_688,
-        exactCostUsd: null,
-      })
+  it("counts one Claude Code response per message id across content-block lines", async () => {
+    const rows = await readClaudeCodeUsage(
+      "packages/usage-core/test/fixtures/claude-multiblock.jsonl"
     )
+
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toMatchObject({
+      model: "claude-opus-4-8",
+      inputTokens: 2,
+      outputTokens: 346,
+      cacheReadTokens: 4567,
+      cacheWriteTokens: 28652,
+      cacheWrite1hTokens: 28652,
+    })
+    expect(rows[1]).toMatchObject({
+      cacheWriteTokens: 1000,
+      cacheWrite1hTokens: 600,
+    })
+    expect(rows[2]).toMatchObject({
+      model: "claude-sonnet-4-6",
+      cacheWriteTokens: 0,
+      cacheWrite1hTokens: null,
+    })
   })
 
-  it("preserves ccusage total tokens outside the split counters", () => {
-    const [row] = parseCcusageCodexDaily({
-      daily: [
-        {
-          date: "2026-07-27",
-          models: {
-            "gpt-5.6-luna": {
-              inputTokens: 10,
-              outputTokens: 5,
-              cacheReadTokens: 50,
-              totalTokens: 70,
-            },
-          },
-        },
-      ],
-    })
+  it("dedupes Claude Code responses repeated across session files", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kharcha-claude-"))
+    const fixture = "packages/usage-core/test/fixtures/claude-multiblock.jsonl"
 
-    expect(row?.aggregateTokens).toBe(5)
+    try {
+      await copyFile(fixture, join(directory, "a.jsonl"))
+      await copyFile(fixture, join(directory, "b.jsonl"))
+
+      const rows = await readClaudeCodeUsage(directory)
+      const withIds = rows.filter((row) => row.model === "claude-opus-4-8")
+      const withoutIds = rows.filter((row) => row.model === "claude-sonnet-4-6")
+
+      expect(withIds).toHaveLength(2)
+      expect(withoutIds).toHaveLength(2)
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
   })
 
   it("reads OpenCode2 session messages without duplicating legacy sessions", async () => {
