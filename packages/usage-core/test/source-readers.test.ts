@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createHash } from "node:crypto"
-import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { readClaudeCodeUsage } from "../src/sources/claude-code"
@@ -370,138 +370,120 @@ describe("source readers", () => {
     }
   })
 
-  it("reads omp rows with harness costs and keeps unpriced rows unpriced", async () => {
+  it("reads omp assistant usage from session transcripts", async () => {
     const directory = await mkdtemp(join(tmpdir(), "kharcha-omp-"))
-    const databasePath = join(directory, "stats.db")
-    const db = new Database(databasePath)
-
-    db.run(`create table messages (
-      id integer primary key autoincrement,
-      session_file text not null,
-      entry_id text not null,
-      folder text not null,
-      model text not null,
-      provider text not null,
-      api text not null,
-      timestamp integer not null,
-      duration integer,
-      ttft integer,
-      stop_reason text not null,
-      error_message text,
-      input_tokens integer not null,
-      output_tokens integer not null,
-      cache_read_tokens integer not null,
-      cache_write_tokens integer not null,
-      total_tokens integer not null,
-      premium_requests real not null,
-      cost_input real not null,
-      cost_output real not null,
-      cost_cache_read real not null,
-      cost_cache_write real not null,
-      cost_total real not null,
-      cost_no_cache_input real,
-      cost_unpriced integer not null default 0,
-      agent_type text not null default 'main',
-      unique(session_file, entry_id)
-    )`)
-    const insert = db.prepare(
-      `insert into messages (session_file, entry_id, folder, model, provider, api, timestamp,
-        stop_reason, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens,
-        premium_requests, cost_input, cost_output, cost_cache_read, cost_cache_write, cost_total, cost_unpriced)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    const sessionPath = join(directory, "session.jsonl")
+    await writeFile(
+      sessionPath,
+      [
+        JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-09-25T09:00:00.000Z", cwd: "/tmp" }),
+        JSON.stringify({
+          type: "message",
+          id: "m1",
+          timestamp: "2026-09-25T09:00:01.000Z",
+          message: {
+            role: "assistant",
+            provider: "deepseek",
+            model: "deepseek-flash",
+            responseId: "resp-1",
+            usage: {
+              input: 100,
+              output: 20,
+              cacheRead: 5_000,
+              cacheWrite: 0,
+              totalTokens: 5_120,
+              reasoningTokens: 7,
+              cost: { input: 0.0001, output: 0.0002, cacheRead: 0.0003, cacheWrite: 0, total: 0.0006 },
+            },
+          },
+        }),
+        // A replayed response repeats the id and must not be counted twice
+        JSON.stringify({
+          type: "message",
+          id: "m1",
+          timestamp: "2026-09-25T09:00:01.000Z",
+          message: {
+            role: "assistant",
+            provider: "deepseek",
+            model: "deepseek-flash",
+            responseId: "resp-1",
+            usage: { input: 100, output: 20, cacheRead: 5_000, cacheWrite: 0, totalTokens: 5_120 },
+          },
+        }),
+        // A usage-less record is not an assistant response
+        JSON.stringify({ type: "message", id: "m2", timestamp: "2026-09-25T09:00:02.000Z", message: { role: "user" } }),
+      ].join("\n")
     )
-    insert.run("s1.jsonl", "e1", "/tmp", "deepseek-flash", "deepseek", "chat", 1_756_000_000_000, "stop", 100, 20, 5_000, 0, 5_120, 0, 0.0001, 0.0002, 0.0003, 0, 0.0006, 0)
-    insert.run("s1.jsonl", "e2", "/tmp", "deepseek-flash", "deepseek", "chat", 1_756_000_100_000, "stop", 50, 10, 2_000, 0, 2_060, 0, 0, 0, 0, 0, 0, 1)
-    db.close()
 
     try {
-      const rows = await readOmpUsage(databasePath)
-      expect(rows).toHaveLength(2)
+      const rows = await readOmpUsage(sessionPath)
+      expect(rows).toHaveLength(1)
       expect(rows[0]).toMatchObject({
         source: "omp",
+        provider: "deepseek",
+        model: "deepseek-flash",
+        day: "2026-09-25",
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 5_000,
+        cacheWriteTokens: 0,
+        exactCostUsd: 0.0006,
+      })
+
+      const filtered = await readOmpUsage(sessionPath, { sinceEpochMs: Date.parse("2026-09-26T00:00:00") })
+      expect(filtered).toHaveLength(0)
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("reads DeepSeek Harness usage from session transcripts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kharcha-dsh-"))
+    const sessionDir = join(directory, "sessions", "project")
+    await mkdir(sessionDir, { recursive: true })
+    const sessionPath = join(sessionDir, "session.v3.jsonl.zstd")
+    await writeFile(
+      sessionPath,
+      Bun.zstdCompressSync(
+        Buffer.from(
+          [
+            JSON.stringify({ type: "session", id: "s1", time: 1_756_000_000_000 }),
+            JSON.stringify({ type: "model/selection", data: { provider: "deepseek-official", model: "deepseek-flash" } }),
+            JSON.stringify({
+              type: "assistant/message",
+              id: "r1",
+              time: 1_756_000_001_000,
+              data: { usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 5_000, totalTokens: 5_120, reasoningTokens: 7 } },
+            }),
+            // A replayed response repeats the record id and must not be counted twice
+            JSON.stringify({
+              type: "assistant/message",
+              id: "r1",
+              time: 1_756_000_001_000,
+              data: { usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 5_000, totalTokens: 5_120 } },
+            }),
+            JSON.stringify({ type: "assistant/message", id: "r2", time: 1_756_000_002_000, data: {} }),
+          ].join("\n")
+        )
+      )
+    )
+
+    try {
+      const rows = await readDshUsage(join(directory, "sessions"))
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        source: "dsh",
         provider: "deepseek",
         model: "deepseek-flash",
         inputTokens: 100,
         outputTokens: 20,
         cacheReadTokens: 5_000,
         cacheWriteTokens: 0,
-        exactCostUsd: 0.0006,
-        preventEstimatedCost: false,
-      })
-      expect(rows[1]?.exactCostUsd).toBeNull()
-      expect(rows[1]?.preventEstimatedCost).toBe(true)
-
-      const filtered = await readOmpUsage(databasePath, { sinceEpochMs: 1_756_000_050_000 })
-      expect(filtered).toHaveLength(1)
-      expect(filtered[0]?.sourceSessionHash).toBe(rows[1]?.sourceSessionHash)
-    } finally {
-      await rm(directory, { force: true, recursive: true })
-    }
-  })
-
-  it("reads the DeepSeek Harness ledger per day and provider model", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "kharcha-dsh-"))
-    const ledgerPath = join(directory, "ledger.json")
-    await writeFile(
-      ledgerPath,
-      JSON.stringify({
-        version: 1,
-        days: {
-          "2026-09-18": {
-            input: 1,
-            output: 1,
-            cacheRead: 1,
-            cacheWrite: 0,
-            byProviderModel: {
-              "deepseek-official:deepseek-flash": {
-                input: 828_287,
-                output: 59_065,
-                cacheRead: 9_571_712,
-                cacheWrite: 0,
-                apiCost: 0.18839718600000002,
-              },
-            },
-          },
-          "2026-09-21": {
-            byProviderModel: {
-              "deepseek-official:deepseek-flash": {
-                input: 118_678,
-                output: 101_547,
-                cacheRead: 16_306_304,
-                cacheWrite: 0,
-                apiCost: 0.12764881200000003,
-              },
-              "deepseek-official:deepseek-flash-2": {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                apiCost: 0,
-              },
-            },
-          },
-        },
-      })
-    )
-
-    try {
-      const rows = await readDshUsage(ledgerPath)
-      expect(rows).toHaveLength(2)
-      expect(rows[0]).toMatchObject({
-        source: "dsh",
-        provider: "deepseek",
-        model: "deepseek-flash",
-        day: "2026-09-18",
-        inputTokens: 828_287,
-        cacheReadTokens: 9_571_712,
-        cacheWriteTokens: 0,
-        exactCostUsd: 0.18839718600000002,
+        exactCostUsd: null,
       })
 
-      const filtered = await readDshUsage(ledgerPath, { sinceDay: "2026-09-19" })
-      expect(filtered).toHaveLength(1)
-      expect(filtered[0]?.day).toBe("2026-09-21")
-      expect(filtered[0]?.cacheReadTokens).toBe(16_306_304)
+      const filtered = await readDshUsage(join(directory, "sessions"), { sinceEpochMs: Date.parse("2026-01-01T00:00:00") })
+      expect(filtered).toHaveLength(0)
     } finally {
       await rm(directory, { force: true, recursive: true })
     }

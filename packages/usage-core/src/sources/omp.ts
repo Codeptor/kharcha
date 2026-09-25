@@ -1,20 +1,37 @@
 import { createHash } from "node:crypto"
-import { Database } from "bun:sqlite"
+import { createReadStream } from "node:fs"
+import { readdir, stat } from "node:fs/promises"
+import { createInterface } from "node:readline"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
 
-type OmpMessageRow = {
-  session_file: string
-  entry_id: string
-  model: string
-  provider: string
-  timestamp: number
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_write_tokens: number
-  cost_total: number
-  cost_unpriced: number
+type OmpUsage = {
+  input?: number
+  output?: number
+  cacheRead?: number
+  cacheWrite?: number
+  totalTokens?: number
+  reasoningTokens?: number
+  cost?: {
+    input?: number
+    output?: number
+    cacheRead?: number
+    cacheWrite?: number
+    total?: number
+  }
+}
+
+type OmpSessionLine = {
+  type?: string
+  id?: string
+  timestamp?: string
+  message?: {
+    role?: string
+    provider?: string
+    model?: string
+    responseId?: string
+    usage?: OmpUsage
+  }
 }
 
 function localDay(epochMs: number): string {
@@ -25,48 +42,97 @@ function localDay(epochMs: number): string {
   return `${y}-${m}-${day}`
 }
 
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+async function collectSessionFiles(targetPath: string): Promise<string[]> {
+  const info = await stat(targetPath)
+  if (info.isFile()) return targetPath.endsWith(".jsonl") ? [targetPath] : []
+
+  const entries = await readdir(targetPath, { withFileTypes: true })
+  const found = await Promise.all(
+    entries.map(async entry => {
+      const childPath = `${targetPath}/${entry.name}`
+      if (entry.isDirectory()) return collectSessionFiles(childPath)
+      return childPath.endsWith(".jsonl") ? [childPath] : []
+    })
+  )
+  return found.flat()
+}
+
 /**
- * Reads the omp (oh-my-pi) harness usage store. It keeps one row per assistant
- * message with the server-reported counters and its own cost accounting, so the
- * cost is exact rather than priced here. `cost_unpriced` marks rows the harness
- * could not price, which must stay unpriced instead of becoming a $0 estimate.
+ * Reads omp (oh-my-pi) usage from its session transcripts.
  *
- * `sinceEpochMs` narrows the read for consumers that only need a recent window.
+ * The harness's `stats.db` is a derived view that only ingests session files on
+ * its own schedule, so it lags by hours and misses sessions entirely; the
+ * transcripts are the record that carries every assistant response's counters
+ * and the harness's own cost calculation, which is used as exact.
+ *
+ * `sinceEpochMs` narrows the read for consumers that only need a recent window:
+ * a file last written before then cannot hold an in-window response.
  */
 export async function readOmpUsage(targetPath: string, options: { sinceEpochMs?: number } = {}): Promise<UsageSlice[]> {
-  const db = new Database(targetPath, { readonly: true })
   const rows: UsageSlice[] = []
-  const columns = `session_file, entry_id, model, provider, timestamp,
-                   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                   cost_total, cost_unpriced`
+  const seen = new Set<string>()
+  const files = await collectSessionFiles(targetPath)
 
-  try {
-    const messages =
-      options.sinceEpochMs === undefined
-        ? db.query<OmpMessageRow, []>(`select ${columns} from messages`).all()
-        : db.query<OmpMessageRow, [number]>(`select ${columns} from messages where timestamp >= ?`).all(options.sinceEpochMs)
+  for (const file of files) {
+    if (options.sinceEpochMs !== undefined) {
+      const info = await stat(file)
+      if (info.mtimeMs < options.sinceEpochMs) continue
+    }
 
-    for (const message of messages) {
-      const normalized = normalizeModelKey(message.provider, message.model)
+    const lines = createInterface({
+      input: createReadStream(file, { encoding: "utf8" }),
+      crlfDelay: Infinity,
+    })
+
+    for await (const line of lines) {
+      if (!line.trim()) continue
+
+      let parsed: OmpSessionLine
+      try {
+        parsed = JSON.parse(line) as OmpSessionLine
+      } catch {
+        continue
+      }
+
+      const message = parsed.message
+      const usage = message?.usage
+      if (parsed.type !== "message" || message?.role !== "assistant" || !usage) continue
+
+      const startedAt = parsed.timestamp
+      const startedMs = startedAt ? new Date(startedAt).getTime() : NaN
+      if (Number.isNaN(startedMs)) continue
+      if (options.sinceEpochMs !== undefined && startedMs < options.sinceEpochMs) continue
+
+      // One response per record id; omp only repeats a response when a session
+      // is replayed, and the replay carries the same id.
+      const key = message.responseId ?? parsed.id
+      if (key) {
+        if (seen.has(key)) continue
+        seen.add(key)
+      }
+
+      const normalized = normalizeModelKey(message.provider ?? "omp", message.model ?? "unknown")
+      const cacheWriteTokens = usage.cacheWrite ?? 0
       rows.push({
         source: "omp",
         provider: normalized.provider,
         model: normalized.model,
-        day: localDay(message.timestamp),
-        startedAt: new Date(message.timestamp).toISOString(),
-        inputTokens: message.input_tokens,
-        outputTokens: message.output_tokens,
-        cacheReadTokens: message.cache_read_tokens,
-        cacheWriteTokens: message.cache_write_tokens,
-        exactCostUsd: message.cost_unpriced === 0 ? message.cost_total : null,
-        preventEstimatedCost: message.cost_unpriced !== 0,
+        day: localDay(startedMs),
+        startedAt: startedAt ?? null,
+        inputTokens: usage.input ?? 0,
+        outputTokens: usage.output ?? 0,
+        cacheReadTokens: usage.cacheRead ?? 0,
+        cacheWriteTokens,
+        exactCostUsd: finiteOrNull(usage.cost?.total),
         sourceSessionHash: createHash("sha256")
-          .update(`${message.session_file}:${message.entry_id}`)
+          .update(`${file}:${key ?? startedMs}`)
           .digest("hex"),
       })
     }
-  } finally {
-    db.close()
   }
 
   return rows

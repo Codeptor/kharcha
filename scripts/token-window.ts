@@ -27,8 +27,8 @@ const claudeOnly = process.argv.includes("--claude-only")
 const sources = claudeOnly
   ? {}
   : {
-      omp: process.env.OMP_STATS_PATH ?? join(home, ".omp/stats.db"),
-      dsh: process.env.DSH_LEDGER_PATH ?? join(home, ".dsh/storages/cost-meter/ledger.json"),
+      omp: process.env.OMP_SESSIONS_PATH ?? join(home, ".omp/agent/sessions"),
+      dsh: process.env.DSH_SESSIONS_PATH ?? join(home, ".dsh/sessions"),
       agy: process.env.AGY_USAGE_PATH ?? join(home, ".gemini/antigravity-cli/kharcha-usage.jsonl"),
       kimi: process.env.KIMI_PATH ?? join(home, ".kimi/sessions"),
       codex: process.env.CODEX_PATH ?? join(home, ".codex"),

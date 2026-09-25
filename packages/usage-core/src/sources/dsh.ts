@@ -1,70 +1,143 @@
 import { createHash } from "node:crypto"
-import { readFile } from "node:fs/promises"
+import { readdir, readFile, stat } from "node:fs/promises"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
 
-type DshModelTotals = {
-  input?: number
-  output?: number
-  cacheRead?: number
-  cacheWrite?: number
-  cost?: number
-  apiCost?: number
+type DshUsage = {
+  inputTokens?: number
+  outputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  totalTokens?: number
+  reasoningTokens?: number
 }
 
-type DshDay = DshModelTotals & {
-  /** Reported separately by the harness; already counted inside `output`. */
-  reasoning?: number
-  byProviderModel?: Record<string, DshModelTotals>
+type DshLine = {
+  type?: string
+  id?: string
+  time?: number
+  data?: {
+    provider?: string
+    model?: string
+    usage?: DshUsage
+    // request/header carries the provider and model the request was made with
+    header?: { config?: { provider?: string; model?: string } }
+  }
 }
 
-type DshLedger = {
-  version?: number
-  days?: Record<string, DshDay>
+function localDay(epochMs: number): string {
+  const date = new Date(epochMs)
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
 }
 
-function finiteOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null
+async function collectSessionFiles(targetPath: string): Promise<string[]> {
+  const info = await stat(targetPath)
+  if (info.isFile()) return [targetPath]
+
+  const entries = await readdir(targetPath, { withFileTypes: true })
+  const found = await Promise.all(
+    entries.map(async entry => {
+      const childPath = `${targetPath}/${entry.name}`
+      if (entry.isDirectory()) return collectSessionFiles(childPath)
+      return childPath.endsWith(".jsonl.zstd") || childPath.endsWith(".jsonl") ? [childPath] : []
+    })
+  )
+  return found.flat()
+}
+
+async function sessionLines(path: string): Promise<string[]> {
+  if (path.endsWith(".zstd")) {
+    const compressed = await readFile(path)
+    return new TextDecoder().decode(Bun.zstdDecompressSync(new Uint8Array(compressed))).split("\n")
+  }
+  return (await readFile(path, "utf8")).split("\n")
 }
 
 /**
- * Reads the DeepSeek Harness cost-meter ledger. It aggregates per local day and
- * per `provider:model`, with the harness's own cost accounting, so the cost is
- * exact rather than priced here. `reasoning` is not added to the output bucket:
- * the harness reports it beside the completion tokens that already include it.
+ * Reads DeepSeek Harness usage from its session transcripts.
  *
- * `sinceDay` narrows the read for consumers that only need a recent window.
+ * The harness's cost-meter ledger is a snapshot its UI writes, so it stops at
+ * whenever that UI was last open: the ledger's final day was hours short of the
+ * truth. The session transcripts carry one usage record per assistant response
+ * and are the record that keeps up. They report input, output and cache-read
+ * tokens with no cost, so those rows are priced from the catalog.
+ *
+ * `sinceEpochMs` narrows the read for consumers that only need a recent window:
+ * a session file last written before then cannot hold an in-window response.
  */
-export async function readDshUsage(targetPath: string, options: { sinceDay?: string } = {}): Promise<UsageSlice[]> {
-  const ledger = JSON.parse(await readFile(targetPath, "utf8")) as DshLedger
+export async function readDshUsage(targetPath: string, options: { sinceEpochMs?: number } = {}): Promise<UsageSlice[]> {
   const rows: UsageSlice[] = []
+  const seen = new Set<string>()
+  const files = await collectSessionFiles(targetPath)
 
-  for (const [day, entry] of Object.entries(ledger?.days ?? {})) {
-    if (options.sinceDay && day < options.sinceDay) continue
+  for (const file of files) {
+    if (options.sinceEpochMs !== undefined) {
+      const info = await stat(file)
+      if (info.mtimeMs < options.sinceEpochMs) continue
+    }
 
-    for (const [key, totals] of Object.entries(entry?.byProviderModel ?? {})) {
-      const separator = key.indexOf(":")
-      if (separator <= 0) continue
+    let provider = "deepseek-official"
+    let model = "unknown"
 
-      const inputTokens = totals.input ?? 0
-      const outputTokens = totals.output ?? 0
-      const cacheReadTokens = totals.cacheRead ?? 0
-      const cacheWriteTokens = totals.cacheWrite ?? 0
-      if (inputTokens === 0 && outputTokens === 0 && cacheReadTokens === 0 && cacheWriteTokens === 0) continue
+    for (const line of await sessionLines(file)) {
+      if (!line.trim()) continue
 
-      const normalized = normalizeModelKey(key.slice(0, separator), key.slice(separator + 1))
+      let parsed: DshLine
+      try {
+        parsed = JSON.parse(line) as DshLine
+      } catch {
+        continue
+      }
+
+      // The harness picks a provider and model per session and can switch.
+      // Older sessions record it on the request header instead of a selection.
+      if (parsed.type === "model/selection") {
+        provider = parsed.data?.provider ?? provider
+        model = parsed.data?.model ?? model
+        continue
+      }
+      if (parsed.type === "request/header") {
+        provider = parsed.data?.header?.config?.provider ?? provider
+        model = parsed.data?.header?.config?.model ?? model
+        continue
+      }
+
+      if (parsed.type !== "assistant/message") continue
+      const usage = parsed.data?.usage
+      if (!usage) continue
+
+      const startedMs = parsed.time
+      if (typeof startedMs !== "number" || !Number.isFinite(startedMs)) continue
+      if (options.sinceEpochMs !== undefined && startedMs < options.sinceEpochMs) continue
+
+      const key = parsed.id
+      if (key) {
+        if (seen.has(key)) continue
+        seen.add(key)
+      }
+
+      const inputTokens = usage.inputTokens ?? 0
+      const outputTokens = usage.outputTokens ?? 0
+      const cacheReadTokens = usage.cacheReadTokens ?? 0
+      const cacheWriteTokens = usage.cacheWriteTokens ?? 0
+      if (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens === 0) continue
+
+      const normalized = normalizeModelKey(provider, model)
       rows.push({
         source: "dsh",
         provider: normalized.provider,
         model: normalized.model,
-        day,
-        startedAt: null,
+        day: localDay(startedMs),
+        startedAt: new Date(startedMs).toISOString(),
         inputTokens,
         outputTokens,
         cacheReadTokens,
         cacheWriteTokens,
-        exactCostUsd: finiteOrNull(totals.apiCost) ?? finiteOrNull(totals.cost),
-        sourceSessionHash: createHash("sha256").update(`dsh:${day}:${key}`).digest("hex"),
+        exactCostUsd: null,
+        sourceSessionHash: createHash("sha256").update(`dsh:${file}:${key ?? startedMs}`).digest("hex"),
       })
     }
   }

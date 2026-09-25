@@ -32,15 +32,27 @@ bun run agy:install
 - `scripts/token-window.ts` (`bun run tokens`) writes the caelestia bar widget's
   snapshot to `$XDG_CACHE_HOME/claude-usage/tokens.json`: a rolling window of
   local days (7 by default) of token counters across **every local store the
-  sync reads**: Claude Code transcripts, `~/.omp/stats.db` (oh-my-pi),
-  `~/.dsh/storages/cost-meter/ledger.json` (DeepSeek Harness), AGY, Codex,
-  Kimi and OpenCode. Split into input, output, cache-read and cache-write
-  buckets, per model, plus cost and a per-source token total.
-- Claude Code is read incrementally: per-file offsets and per-day counters live
-  in `$XDG_CACHE_HOME/kharcha/claude-tokens-cache.json` (override with
+  sync reads**: Claude Code transcripts, omp (oh-my-pi) session transcripts,
+  DeepSeek Harness session transcripts, AGY, Codex, Kimi and OpenCode. Split
+  into input, output, cache-read and cache-write buckets, per model, plus cost
+  and a per-source token total.
+- omp and the DeepSeek Harness are read from their **session transcripts**
+  (`~/.omp/agent/sessions`, `~/.dsh/sessions`), not from the derived stores
+  beside them. Both harnesses keep a second database that only folds sessions
+  in on its own schedule: omp's `stats.db` had 10 of 59 sessions ingested and
+  the DeepSeek Harness's cost-meter ledger stopped mid-day, so either one
+  under-reports by an order of magnitude. Verify against the session files.
+- dsh transcripts are zstd-compressed and carry no cost, so those rows are
+  priced from the catalog; omp transcripts carry the harness's own cost, which
+  is kept as exact.
+- Claude Code is read incrementally: per-file offsets, per-day counters and the
+  response keys already counted live in
+  `$XDG_CACHE_HOME/kharcha/claude-tokens-cache.json` (override with
   `CLAUDE_TOKENS_CACHE_PATH`, pass `--no-cache` to force a cold read). A cold
   read parses only files touched inside the window; a warm run over unchanged
-  transcripts reads nothing.
+  transcripts reads nothing. The key set spans the whole window on purpose: a
+  resumed or replayed session can log a response again far from its first
+  appearance, and a short trailing window double-counts those.
 - The other stores are read per run and are cheap because each is windowed:
   omp by `timestamp`, dsh by day key, OpenCode by its `time_created` column
   before any JSON extraction, Codex from its rollout cache. `--claude-only`

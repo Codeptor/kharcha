@@ -221,14 +221,13 @@ async function loadUsageRows() {
     },
     {
       name: "omp",
-      path: process.env.OMP_STATS_PATH ?? join(home, ".omp/stats.db"),
+      path:
+        process.env.OMP_SESSIONS_PATH ?? join(home, ".omp/agent/sessions"),
       reader: readOmpUsage,
     },
     {
       name: "DSH",
-      path:
-        process.env.DSH_LEDGER_PATH ??
-        join(home, ".dsh/storages/cost-meter/ledger.json"),
+      path: process.env.DSH_SESSIONS_PATH ?? join(home, ".dsh/sessions"),
       reader: readDshUsage,
     },
   ]
