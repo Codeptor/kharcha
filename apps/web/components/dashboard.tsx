@@ -26,6 +26,7 @@ import {
   formatCompact,
   formatFull,
 } from "@/lib/dashboard/currency"
+import { sourceLabel } from "@/lib/dashboard/source-labels"
 import { ProviderIcon, ModelIcon } from "./provider-icon"
 import { Heatmap } from "./heatmap"
 import { HourHeatmap } from "./hour-heatmap"
@@ -976,7 +977,10 @@ export function Dashboard({ data }: { data: DashboardData }) {
                         seg.input + seg.output + seg.cacheRead + seg.cacheWrite
                       )}
                     </span>
-                    <span className="inline-flex w-5 justify-end sm:w-6">
+                    <span
+                      className="inline-flex w-5 justify-end sm:w-6"
+                      title={sourceLabel(seg.source)}
+                    >
                       <ProviderIcon name={seg.source} size={11} />
                     </span>
                   </div>

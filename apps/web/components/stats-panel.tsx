@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { ModelStat, StreakInfo, UsageMetrics } from "@/lib/dashboard/stats"
+import { sourceLabel } from "@/lib/dashboard/source-labels"
 import { ProviderIcon, ModelIcon } from "./provider-icon"
 
 function displayModel(label: string): string {
@@ -159,7 +160,7 @@ export function StatsPanel({
                 className="min-w-0 flex-1 truncate text-[11px] text-stone-700 sm:text-[13px] dark:text-stone-300"
                 style={{ fontFamily: "var(--font-display)" }}
               >
-                {source.source}
+                {sourceLabel(source.source)}
               </span>
               <span className="font-mono text-[10px] text-stone-500 tabular-nums sm:text-[12px] dark:text-stone-400">
                 {fmtTokens(source.totalTokens)} ·{" "}

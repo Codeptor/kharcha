@@ -27,6 +27,11 @@ const SAKANA_FISH = [
   "M15 12 22 8 19.5 12 22 16Z",
 ]
 
+// oh-my-pi (source id `omp`) has no lobehub icon — a monochrome pi glyph
+// (crossbar + two legs) in a 24×24 viewBox, filled with currentColor like the
+// other provider marks.
+const OMP_PI = ["M3 5h18v3H3z", "M6 8h3v11H6z", "M15 8h3v9h-3z"]
+
 // Modal has no lobehub icon — extracted from https://modal.com/assets/favicon.svg
 // (300×300 geometric M, green #62DE61). Single outline path, rendered monochrome
 // via currentColor to match other provider marks. Uses 300 viewBox.
@@ -53,6 +58,7 @@ const ICON_PATHS: Record<string, string[]> = {
   nvidia: extractPaths(nvidiaSvg),
   meta: extractPaths(metaSvg),
   deepseek: extractPaths(deepseekSvg),
+  dsh: extractPaths(deepseekSvg),
   qwen: extractPaths(qwenSvg),
   qwencloud: extractPaths(qwenSvg),
   glm: extractPaths(chatglmSvg),
@@ -62,6 +68,7 @@ const ICON_PATHS: Record<string, string[]> = {
   sakana: SAKANA_FISH,
   fugu: SAKANA_FISH,
   modal: MODAL_LOGO,
+  omp: OMP_PI,
 }
 
 const ICON_VIEWBOX: Record<string, string> = {
