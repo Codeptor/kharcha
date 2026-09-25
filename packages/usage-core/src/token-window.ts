@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { open, readdir, readFile, rename, stat, writeFile } from "node:fs/promises"
 import { normalizeModelKey } from "./model-aliases"
 import { CUSTOM_PRICING } from "./pricing/custom-pricing"
@@ -80,18 +81,26 @@ type FileEntry = {
   /** day -> normalized model -> counters, limited to the tracked window. */
   days: Record<string, Record<string, TokenCounters>>
   /**
-   * Response keys seen at the tail of the last read. One response is logged as
-   * several lines with the same key, and a read can split that group, so the
-   * tail survives into the next run for the dedupe to hold.
+   * day -> concatenated 8-byte hashes of the response keys this file has
+   * already contributed. Kept per file so a rewritten file can forget them and
+   * be counted again. A response can be logged far from its first appearance
+   * when a session is resumed or replayed, so this spans the whole window
+   * rather than a window of the last few keys.
    */
-  tailKeys: string[]
+  keys: Record<string, string>
 }
 
 type WindowCache = {
-  schema: 1
+  schema: 3
   windowDays: number
   source: string
   files: Record<string, FileEntry>
+}
+
+const KEY_HASH_LENGTH = 11
+
+function hashResponseKey(key: string): string {
+  return createHash("sha1").update(key).digest("base64url").slice(0, KEY_HASH_LENGTH)
 }
 
 /**
@@ -132,7 +141,6 @@ export type TokenWindowOptions = {
 }
 
 const READ_CHUNK_BYTES = 4 * 1024 * 1024
-const TAIL_KEY_LIMIT = 32
 
 function emptyCounters(): TokenCounters {
   return {
@@ -234,21 +242,22 @@ function parseUsageLine(line: string): { key: string | null; day: string; model:
  * Reads the bytes appended since the last run, advancing the offset only past
  * complete lines so a write in flight is retried instead of half-counted.
  */
-async function ingestFile(path: string, entry: FileEntry, windowStart: string): Promise<number> {
+async function ingestFile(path: string, entry: FileEntry, windowStart: string, seen: Set<string>): Promise<number> {
   const handle = await open(path, "r")
   try {
     const info = await handle.stat()
     if (info.size < entry.offset) {
-      // Truncated or rewritten; the file has to be replayed from the start.
+      // Truncated or rewritten: the file has to be replayed from the start, and
+      // the keys it contributed have to be forgotten or the replay counts as
+      // duplicates and the contents vanish from the window.
+      for (const hash of keyHashes(entry.keys ?? {})) seen.delete(hash)
       entry.offset = 0
       entry.days = {}
-      entry.tailKeys = []
+      entry.keys = {}
     }
     const start = entry.offset
     if (info.size === start) return 0
 
-    const seen = new Set(entry.tailKeys)
-    const tail = [...entry.tailKeys]
     let position = start
     let carry = Buffer.alloc(0)
 
@@ -271,10 +280,13 @@ async function ingestFile(path: string, entry: FileEntry, windowStart: string): 
         const record = parseUsageLine(line)
         if (!record) continue
         if (record.key) {
-          if (seen.has(record.key)) continue
-          seen.add(record.key)
-          tail.push(record.key)
-          if (tail.length > TAIL_KEY_LIMIT) tail.shift()
+          const hash = hashResponseKey(record.key)
+          if (seen.has(hash)) continue
+          seen.add(hash)
+          if (record.day >= windowStart) {
+            const blobs = (entry.keys ??= {})
+            blobs[record.day] = (blobs[record.day] ?? "") + hash
+          }
         }
         if (record.day < windowStart) continue
         const day = (entry.days[record.day] ??= {})
@@ -284,7 +296,6 @@ async function ingestFile(path: string, entry: FileEntry, windowStart: string): 
       carry = Buffer.from(data.subarray(lastNewline + 1))
     }
 
-    entry.tailKeys = tail
     entry.offset = position - carry.length
     entry.size = info.size
     return entry.offset - start
@@ -298,6 +309,11 @@ function pruneCache(cache: WindowCache, windowStart: string, livePaths: Set<stri
     for (const day of Object.keys(entry.days)) {
       if (day < windowStart) delete entry.days[day]
     }
+    // Keys for days outside the window can no longer be needed: a response from
+    // one of those days is dropped by the day filter even if it reappears.
+    for (const day of Object.keys(entry.keys ?? {})) {
+      if (day < windowStart) delete entry.keys[day]
+    }
     // Entries survive with empty buckets on purpose: they are the record that
     // the file has been read to `offset`, which is what keeps a file that holds
     // no in-window counters from being replayed in full on every run. Only a
@@ -307,17 +323,33 @@ function pruneCache(cache: WindowCache, windowStart: string, livePaths: Set<stri
 }
 
 async function loadCache(cachePath: string | null, windowDays: number, source: string): Promise<WindowCache> {
-  const fresh: WindowCache = { schema: 1, windowDays, source, files: {} }
+  const fresh: WindowCache = { schema: 3, windowDays, source, files: {} }
   if (!cachePath) return fresh
   try {
     const parsed = JSON.parse(await readFile(cachePath, "utf8")) as WindowCache
-    // A different root or window size cannot reuse day buckets or offsets.
-    if (parsed?.schema !== 1 || parsed.windowDays !== windowDays || parsed.source !== source || typeof parsed.files !== "object")
+    // A different root, window size or schema cannot reuse buckets or offsets.
+    if (parsed?.schema !== 3 || parsed.windowDays !== windowDays || parsed.source !== source || typeof parsed.files !== "object")
       return fresh
     return parsed
   } catch {
     return fresh
   }
+}
+
+function keyHashes(blobs: Record<string, string>): string[] {
+  const hashes: string[] = []
+  for (const blob of Object.values(blobs)) {
+    for (let offset = 0; offset < blob.length; offset += KEY_HASH_LENGTH) hashes.push(blob.slice(offset, offset + KEY_HASH_LENGTH))
+  }
+  return hashes
+}
+
+function loadSeenKeys(cache: WindowCache): Set<string> {
+  const seen = new Set<string>()
+  for (const entry of Object.values(cache.files)) {
+    for (const hash of keyHashes(entry.keys ?? {})) seen.add(hash)
+  }
+  return seen
 }
 
 async function loadPricing(pricingPath: string | null): Promise<Map<string, PricingSnapshot>> {
@@ -378,7 +410,7 @@ async function collectExternalRows(
     {
       id: "dsh",
       path: sources.dsh,
-      read: path => readDshUsage(path, { sinceDay: windowStart }),
+      read: path => readDshUsage(path, { sinceEpochMs: windowStartMs }),
     },
     { id: "agy", path: sources.agy, read: path => readAgyUsage(path) },
     { id: "kimi", path: sources.kimi, read: path => readKimiUsage(path) },
@@ -449,6 +481,7 @@ export async function runTokenWindow(options: TokenWindowOptions): Promise<Token
   const cache = await loadCache(cachePath, windowDays, options.root)
   const files = (await collectJsonlFiles(options.root)).sort()
   const livePaths = new Set(files)
+  const seen = loadSeenKeys(cache)
 
   let filesRead = 0
   let bytesRead = 0
@@ -461,9 +494,9 @@ export async function runTokenWindow(options: TokenWindowOptions): Promise<Token
       // A file last written before the window opened cannot hold in-window data.
       if (info.mtimeMs < windowStartMs) continue
       cold = true
-      entry = cache.files[path] = { offset: 0, size: 0, days: {}, tailKeys: [] }
+      entry = cache.files[path] = { offset: 0, size: 0, days: {}, keys: {} }
     }
-    const read = await ingestFile(path, entry, windowStart)
+    const read = await ingestFile(path, entry, windowStart, seen)
     if (read > 0) {
       filesRead += 1
       bytesRead += read
