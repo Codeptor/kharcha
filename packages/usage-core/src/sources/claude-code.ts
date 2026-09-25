@@ -52,7 +52,7 @@ function localDate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-function toDay(value?: string): string {
+export function toDay(value?: string): string {
   if (!value) return localDate(new Date())
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? localDate(new Date()) : localDate(date)

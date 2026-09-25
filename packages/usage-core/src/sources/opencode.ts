@@ -251,6 +251,7 @@ const messageQuery = `
   select ${usageColumns}
   from message
   where iif(json_valid(data), json_extract(data, '$.role') = 'assistant', 0)
+    and time_created >= ?
 `
 
 function sessionMessageQuery(excludeLegacySessions: boolean): string {
@@ -259,6 +260,7 @@ function sessionMessageQuery(excludeLegacySessions: boolean): string {
     from session_message
     where type = 'assistant'
       and iif(json_valid(data), json_type(data) = 'object', 0)
+      and time_created >= ?
       ${
         excludeLegacySessions
           ? `and not exists (
@@ -269,7 +271,7 @@ function sessionMessageQuery(excludeLegacySessions: boolean): string {
   `
 }
 
-function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
+function readOpenCodeSqlite(targetPath: string, sinceEpochMs: number): UsageSlice[] {
   const rows: UsageSlice[] = []
   const db = new Database(targetPath, { readonly: true })
 
@@ -285,7 +287,7 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
     )
 
     if (tables.has("message")) {
-      for (const row of db.query<SqliteRow, []>(messageQuery).iterate()) {
+      for (const row of db.query<SqliteRow, [number]>(messageQuery).iterate(sinceEpochMs)) {
         if (hasError(row)) continue
 
         rows.push(
@@ -302,7 +304,7 @@ function readOpenCodeSqlite(targetPath: string): UsageSlice[] {
     if (tables.has("session_message")) {
       const query = sessionMessageQuery(tables.has("message"))
 
-      for (const row of db.query<SqliteRow, []>(query).iterate()) {
+      for (const row of db.query<SqliteRow, [number]>(query).iterate(sinceEpochMs)) {
         if (hasError(row)) continue
 
         rows.push(
@@ -373,9 +375,16 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
   return rows
 }
 
+/**
+ * Reads OpenCode usage. `sinceEpochMs` filters on the plain `time_created`
+ * column before any JSON extraction, which is what makes a windowed read of a
+ * multi-gigabyte database cheap.
+ */
 export async function readOpenCodeUsage(
-  targetPath: string
+  targetPath: string,
+  options: { sinceEpochMs?: number } = {}
 ): Promise<UsageSlice[]> {
+  const sinceEpochMs = options.sinceEpochMs ?? 0
   const targets = await collectOpenCodeTargets(targetPath)
   const rows: UsageSlice[] = []
 
@@ -391,7 +400,7 @@ export async function readOpenCodeUsage(
     }
 
     if (target.endsWith(".sqlite") || target.endsWith(".db")) {
-      rows.push(...readOpenCodeSqlite(target))
+      rows.push(...readOpenCodeSqlite(target, sinceEpochMs))
     }
   }
 

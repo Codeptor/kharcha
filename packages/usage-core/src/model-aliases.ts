@@ -9,6 +9,9 @@ const WRAPPED_CLAUDE_PROVIDERS = new Set([
 // Second Modal account seen in OpenCode; same catalog and rates as `modal`.
 const PROVIDER_ALIASES: Record<string, string> = {
   modal2: "modal",
+  // The DeepSeek Harness names DeepSeek's own API `deepseek-official`, while the
+  // omp harness records the same API as `deepseek`. One vendor, one provider id.
+  "deepseek-official": "deepseek",
 }
 
 // Models served through Alibaba Model Studio's Anthropic-compatible endpoint

@@ -16,8 +16,19 @@ export type {
   SyncPricingSnapshot,
 } from "./build-sync-batch"
 export { readClaudeCodeUsage } from "./sources/claude-code"
+export { formatTokenCount, runTokenWindow, windowStartDay } from "./token-window"
+export type {
+  TokenCounters,
+  TokenWindow,
+  TokenWindowModelTotals,
+  TokenWindowOptions,
+  TokenWindowSourceTotals,
+  TokenWindowSources,
+} from "./token-window"
 export { readCodexRollouts, readCodexUsage } from "./sources/codex"
 export type { CodexReadOptions, CodexReadResult } from "./sources/codex"
 export { readOpenCodeUsage } from "./sources/opencode"
 export { readKimiUsage } from "./sources/kimi"
 export { readAgyUsage } from "./sources/agy"
+export { readOmpUsage } from "./sources/omp"
+export { readDshUsage } from "./sources/dsh"

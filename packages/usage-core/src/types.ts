@@ -13,7 +13,7 @@ export type PricingSnapshot = {
 }
 
 export type UsageSlice = {
-  source: "claude-code" | "codex" | "opencode" | "kimi" | "agy"
+  source: "claude-code" | "codex" | "opencode" | "kimi" | "agy" | "omp" | "dsh"
   provider: string
   model: string
   day: string

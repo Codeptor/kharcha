@@ -1,4 +1,4 @@
-import { access, readdir } from "node:fs/promises"
+import { access, mkdir, readdir, rename, writeFile } from "node:fs/promises"
 import { constants as fsConstants } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import {
@@ -10,7 +10,10 @@ import {
   readCodexRollouts,
   readKimiUsage,
   readOpenCodeUsage,
+  readOmpUsage,
+  readDshUsage,
   toPricingSnapshot,
+  type SyncPricingLookup,
   type UsageSlice,
 } from "../packages/usage-core/src/index.ts"
 
@@ -147,6 +150,18 @@ async function loadPricingLookup() {
   return lookup
 }
 
+// Offline consumers (the caelestia token widget) price against the same
+// catalog this batch uses, so a rate never has two sources of truth.
+async function writePricingSnapshot(lookup: SyncPricingLookup): Promise<void> {
+  const path =
+    process.env.KHARCHA_PRICING_PATH ??
+    join(process.env.XDG_CACHE_HOME ?? join(process.env.HOME ?? "", ".cache"), "kharcha/pricing.json")
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(`${path}.tmp`, JSON.stringify({ fetchedAt: new Date().toISOString(), catalog: Object.fromEntries(lookup) }))
+  await rename(`${path}.tmp`, path)
+  console.log(`  pricing snapshot written to ${path}`)
+}
+
 // A reader returns its rows, or rows plus a detail suffix for the log line.
 type SourceRead = UsageSlice[] | { rows: UsageSlice[]; detail: string }
 
@@ -204,6 +219,18 @@ async function loadUsageRows() {
         join(home, ".gemini/antigravity-cli/kharcha-usage.jsonl"),
       reader: readAgyUsage,
     },
+    {
+      name: "omp",
+      path: process.env.OMP_STATS_PATH ?? join(home, ".omp/stats.db"),
+      reader: readOmpUsage,
+    },
+    {
+      name: "DSH",
+      path:
+        process.env.DSH_LEDGER_PATH ??
+        join(home, ".dsh/storages/cost-meter/ledger.json"),
+      reader: readDshUsage,
+    },
   ]
 
   const rows: UsageSlice[] = []
@@ -243,6 +270,7 @@ async function main() {
 
   console.log("\n▸ Fetching pricing...")
   const pricingLookup = await loadPricingLookup()
+  await writePricingSnapshot(pricingLookup)
 
   console.log("\n▸ Building sync batch...")
   const batch = await buildSyncBatch(rows, pricingLookup)
