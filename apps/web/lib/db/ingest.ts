@@ -207,6 +207,18 @@ export function parseSyncBatch(value: unknown): SyncBatch {
   }
 }
 
+/**
+ * Postgres caps a statement at 65535 parameters and the query builder recurses
+ * per bound value, so a batch of ten thousand rows cannot go in as one insert.
+ */
+const INSERT_CHUNK_ROWS = 500
+
+function chunked<T>(items: T[], size = INSERT_CHUNK_ROWS): T[][] {
+  const chunks: T[][] = []
+  for (let offset = 0; offset < items.length; offset += size) chunks.push(items.slice(offset, offset + size))
+  return chunks
+}
+
 export function getAffectedDays(rows: Array<{ day: string }>): string[] {
   return [...new Set(rows.map((row) => row.day))].sort((left, right) =>
     left.localeCompare(right)
@@ -280,11 +292,11 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
       ]),
     ].sort((left, right) => left.localeCompare(right))
 
-    if (batch.pricingSnapshots.length > 0) {
+    for (const snapshots of chunked(batch.pricingSnapshots)) {
       await tx
         .insert(pricingSnapshots)
         .values(
-          batch.pricingSnapshots.map((snapshot) => ({
+          snapshots.map((snapshot) => ({
             ...snapshot,
             inputCost:
               snapshot.inputCost === null
@@ -307,11 +319,11 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
         .onConflictDoNothing()
     }
 
-    if (batch.rows.length > 0) {
+    for (const rows of chunked(batch.rows)) {
       await tx
         .insert(usageRows)
         .values(
-          batch.rows.map((row) => ({
+          rows.map((row) => ({
             ...row,
             costUsd: toDbNumber(row.costUsd),
           }))
@@ -353,11 +365,11 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
       }))
     )
 
-    if (rebuiltRollups.length > 0) {
+    for (const rollups of chunked(rebuiltRollups)) {
       await tx
         .insert(dailyRollups)
         .values(
-          rebuiltRollups.map((row) => ({
+          rollups.map((row) => ({
             ...row,
             costUsd: toDbNumber(row.costUsd),
           }))
@@ -366,9 +378,9 @@ export async function ingestSyncBatch(input: unknown): Promise<IngestResult> {
     }
 
     await tx.delete(hourOfDayBuckets)
-    if (batch.hourBuckets.length > 0) {
+    for (const buckets of chunked(batch.hourBuckets)) {
       await tx.insert(hourOfDayBuckets).values(
-        batch.hourBuckets.map((b) => ({
+        buckets.map((b) => ({
           dayOfWeek: b.dayOfWeek,
           hour: b.hour,
           costUsd: toDbNumber(b.costUsd),

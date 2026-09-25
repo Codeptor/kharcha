@@ -77,6 +77,14 @@ bun run agy:install
   windows. Only ingest counters reported by the provider or CLI.
 - Mark a row `unpriced` when a non-zero token category has no published rate;
   do not silently price it at zero.
+- Gateway providers that resell other vendors' models without publishing rates
+  of their own (NIM, TokenRouter, OpenCode, OpenRouter) borrow the retail rate
+  of the same model under a provider that publishes one, preferring first-party
+  vendors and then well-known hosts. A model whose id says `free` is exempt:
+  zero is its actual rate, not a missing one.
+- A turn with no token counters and no cost is not usage. Readers drop those
+  rows instead of persisting zero rows, which would otherwise surface
+  downstream as unpriced noise.
 - Keep source identifiers stable. The dashboard source label for Google
   Antigravity CLI is `agy`; model pricing remains per canonical provider/model.
 - Keep local collectors private: source session IDs are hashed before sync, and

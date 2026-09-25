@@ -404,5 +404,16 @@ export async function readOpenCodeUsage(
     }
   }
 
-  return rows
+  // A turn that reported no counters and no cost is not usage: OpenCode logs
+  // assistant messages for steps that never reached the model, and persisting
+  // them as zero rows only shows up downstream as unpriced noise.
+  return rows.filter(
+    row =>
+      (row.inputTokens ?? 0) +
+        (row.outputTokens ?? 0) +
+        (row.cacheReadTokens ?? 0) +
+        (row.cacheWriteTokens ?? 0) +
+        (row.aggregateTokens ?? 0) >
+        0 || (row.exactCostUsd ?? 0) > 0
+  )
 }

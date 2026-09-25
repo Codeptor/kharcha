@@ -20,6 +20,16 @@ function extractPaths(svg: string): string[] {
   return [...matches].map((m) => m[1]!)
 }
 
+// TokenRouter has no lobehub icon: three inputs merging into one bus, drawn to
+// stay legible at the 11px the provider marks render at.
+const TOKENROUTER_PATHS = [
+  "M3 5h7v2H3z",
+  "M3 11h7v2H3z",
+  "M3 17h7v2H3z",
+  "M12 4h2v16h-2z",
+  "M15 11h6v2h-6z",
+]
+
 // Sakana ("fish") has no lobehub icon — a simple fish (body + forked tail), legible
 // down to ~11px where provider marks render. Used for the codex-fugu / Fugu Ultra model.
 const SAKANA_FISH = [
@@ -58,6 +68,7 @@ const ICON_PATHS: Record<string, string[]> = {
   nvidia: extractPaths(nvidiaSvg),
   meta: extractPaths(metaSvg),
   deepseek: extractPaths(deepseekSvg),
+  tokenrouter: TOKENROUTER_PATHS,
   dsh: extractPaths(deepseekSvg),
   qwen: extractPaths(qwenSvg),
   qwencloud: extractPaths(qwenSvg),

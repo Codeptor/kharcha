@@ -49,7 +49,7 @@ async function resolveWindowsClaudeDirs(): Promise<string[]> {
   return dirs
 }
 
-async function loadPricingLookup() {
+async function loadPricingLookup(neededKeys: Set<string>) {
   console.log("  fetching pricing catalog from models.dev...")
   const catalog = await fetchModelsDevCatalog()
   const lookup = new Map<string, ReturnType<typeof toPricingSnapshot>>()
@@ -145,6 +145,47 @@ async function loadPricingLookup() {
     if (!key.startsWith("alibaba:")) continue
     lookup.set(`qwencloud:${key.slice("alibaba:".length)}`, snapshot)
   }
+
+  // Gateway providers resell other vendors' models without publishing rates of
+  // their own (NIM is free-tier hosted, TokenRouter routes Moonshot, OpenCode
+  // proxies its own ids). Borrow the retail rate of the same model under a
+  // provider that does publish one, so these tokens are not silently free. A
+  // model whose id says free is left alone: that is its actual rate.
+  const GATEWAYS = new Set(["nvidia", "tokenrouter", "opencode", "openrouter"])
+  const isFree = (modelId: string) => /(^|[-_/])free($|[-_/])|free$/i.test(modelId)
+  let gatewayShadowed = 0
+  for (const key of neededKeys) {
+    const colon = key.indexOf(":")
+    const providerId = key.slice(0, colon)
+    if (!GATEWAYS.has(providerId)) continue
+    const modelId = key.slice(colon + 1)
+    if (isFree(modelId)) continue
+    const existing = lookup.get(key)
+    if (existing && ((existing.inputCost ?? 0) > 0 || (existing.outputCost ?? 0) > 0)) continue
+    const tail = lastSegment(modelId)
+    let best: ReturnType<typeof toPricingSnapshot> | null = null
+    let bestTier = Number.POSITIVE_INFINITY
+    let bestRate = Number.POSITIVE_INFINITY
+    for (const [otherKey, otherSnap] of lookup) {
+      if (otherKey === key) continue
+      const otherModel = otherKey.slice(otherKey.indexOf(":") + 1)
+      if (lastSegment(otherModel) !== tail) continue
+      const rate = (otherSnap.inputCost ?? 0) + (otherSnap.outputCost ?? 0)
+      if (rate <= 0) continue
+      const tier = providerTier(otherKey.slice(0, otherKey.indexOf(":")))
+      if (tier < bestTier || (tier === bestTier && rate < bestRate)) {
+        bestTier = tier
+        bestRate = rate
+        best = otherSnap
+      }
+    }
+    if (best) {
+      lookup.set(key, best)
+      gatewayShadowed += 1
+    }
+  }
+  if (gatewayShadowed > 0)
+    console.log(`  shadow-priced ${gatewayShadowed} gateway models from retail equivalents`)
 
   console.log(`  ${catalog.length} models loaded`)
   return lookup
@@ -268,7 +309,8 @@ async function main() {
   const rows = await loadUsageRows()
 
   console.log("\n▸ Fetching pricing...")
-  const pricingLookup = await loadPricingLookup()
+  const neededKeys = new Set(rows.map(row => `${row.provider}:${row.model}`))
+  const pricingLookup = await loadPricingLookup(neededKeys)
   await writePricingSnapshot(pricingLookup)
 
   console.log("\n▸ Building sync batch...")
@@ -295,22 +337,48 @@ async function main() {
   }
 
   console.log(`\n▸ Syncing to ${url}...`)
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${secret}`,
-    },
-    body: JSON.stringify(batch),
-  })
 
-  if (!response.ok) {
-    throw new Error(`sync failed: ${response.status} ${response.statusText}`)
+  // A Vercel function rejects request bodies over 4.5 MB, which a full-history
+  // batch crosses now that the readers report every session. Send it in chunks:
+  // the ingest upserts rows and rebuilds each day's rollups from what is
+  // persisted, so chunk boundaries do not change the result. Pricing snapshots
+  // ride along with the first chunk and the hour buckets with the last, once
+  // every row is in.
+  const chunkSize = 1500
+  const chunks: (typeof batch.rows)[] = []
+  for (let offset = 0; offset < batch.rows.length; offset += chunkSize) chunks.push(batch.rows.slice(offset, offset + chunkSize))
+
+  let usageRowsInserted = 0
+  let dailyRollupsInserted = 0
+  const affectedDays = new Set<string>()
+
+  for (const [index, rows] of chunks.entries()) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify({
+        generatedAt: batch.generatedAt,
+        rows,
+        pricingSnapshots: index === 0 ? batch.pricingSnapshots : [],
+        hourBuckets: index === chunks.length - 1 ? batch.hourBuckets : [],
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`sync failed: ${response.status} ${response.statusText} (chunk ${index + 1}/${chunks.length})`)
+    }
+
+    const result = (await response.json()) as Record<string, unknown>
+    usageRowsInserted += Number(result.usageRowsInserted ?? 0)
+    dailyRollupsInserted += Number(result.dailyRollupsInserted ?? 0)
+    for (const day of (result.affectedDays as string[]) ?? []) affectedDays.add(day)
   }
 
-  const result = (await response.json()) as Record<string, unknown>
   console.log(
-    `  done — ${result.usageRowsInserted} rows, ${result.dailyRollupsInserted} rollups, ${(result.affectedDays as string[])?.length ?? 0} days affected\n`
+    `  done — ${usageRowsInserted} rows, ${dailyRollupsInserted} rollups, ${affectedDays.size} days affected\n`
   )
 }
 
