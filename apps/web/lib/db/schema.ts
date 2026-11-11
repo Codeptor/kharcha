@@ -1,6 +1,7 @@
 import {
   bigint,
   integer,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -74,6 +75,7 @@ export const pricingSnapshots = pgTable("pricing_snapshots", {
   outputCost: numeric("output_cost", { precision: 18, scale: 8 }),
   cacheReadCost: numeric("cache_read_cost", { precision: 18, scale: 8 }),
   cacheWriteCost: numeric("cache_write_cost", { precision: 18, scale: 8 }),
+  tiers: jsonb("tiers"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

@@ -73,6 +73,7 @@ describe("parseSyncBatch", () => {
           outputCost: 2,
           cacheReadCost: null,
           cacheWriteCost: null,
+          tiers: null,
         },
       ],
       rows: [
@@ -94,6 +95,45 @@ describe("parseSyncBatch", () => {
       ],
       hourBuckets: [],
     })
+  })
+})
+
+describe("parseSyncBatch tiers", () => {
+  const batch = (tiers: unknown) => ({
+    generatedAt: "2026-03-20T00:00:00.000Z",
+    pricingSnapshots: [
+      {
+        snapshotKey: "snap-1",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        inputCost: 3,
+        outputCost: 15,
+        cacheReadCost: null,
+        cacheWriteCost: null,
+        tiers,
+      },
+    ],
+    rows: [],
+  })
+
+  it("keeps valid tiers and rejects malformed ones", () => {
+    const tiers = [
+      {
+        promptTokensAbove: 200000,
+        inputCost: 6,
+        outputCost: 22.5,
+        cacheReadCost: null,
+        cacheWriteCost: 7.5,
+      },
+    ]
+    expect(parseSyncBatch(batch(tiers)).pricingSnapshots[0]?.tiers).toEqual(
+      tiers
+    )
+    expect(parseSyncBatch(batch(null)).pricingSnapshots[0]?.tiers).toBeNull()
+    expect(() => parseSyncBatch(batch([{ ...tiers[0], inputCost: "6" }]))).toThrow(
+      "Invalid sync batch"
+    )
+    expect(() => parseSyncBatch(batch("flat"))).toThrow("Invalid sync batch")
   })
 })
 

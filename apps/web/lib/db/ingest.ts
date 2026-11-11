@@ -24,6 +24,14 @@ type RollupOutput = {
   costUsd: number
 }
 
+type PricingTier = {
+  promptTokensAbove: number
+  inputCost: number | null
+  outputCost: number | null
+  cacheReadCost: number | null
+  cacheWriteCost: number | null
+}
+
 type SyncPricingSnapshot = {
   snapshotKey: string
   provider: string
@@ -32,6 +40,7 @@ type SyncPricingSnapshot = {
   outputCost: number | null
   cacheReadCost: number | null
   cacheWriteCost: number | null
+  tiers: PricingTier[] | null
 }
 
 type SyncBatchRow = {
@@ -96,6 +105,26 @@ function toDbNumber(value: number): string {
   return value.toString()
 }
 
+function parsePricingTier(value: unknown): PricingTier | null {
+  if (!isRecord(value)) return null
+  if (
+    !isNumber(value.promptTokensAbove) ||
+    !isNullableNumber(value.inputCost) ||
+    !isNullableNumber(value.outputCost) ||
+    !isNullableNumber(value.cacheReadCost) ||
+    !isNullableNumber(value.cacheWriteCost)
+  ) {
+    return null
+  }
+  return {
+    promptTokensAbove: value.promptTokensAbove,
+    inputCost: value.inputCost,
+    outputCost: value.outputCost,
+    cacheReadCost: value.cacheReadCost,
+    cacheWriteCost: value.cacheWriteCost,
+  }
+}
+
 function parsePricingSnapshot(value: unknown): SyncPricingSnapshot | null {
   if (!isRecord(value)) return null
   if (
@@ -110,6 +139,14 @@ function parsePricingSnapshot(value: unknown): SyncPricingSnapshot | null {
     return null
   }
 
+  let tiers: PricingTier[] | null = null
+  if (value.tiers !== undefined && value.tiers !== null) {
+    if (!Array.isArray(value.tiers)) return null
+    const parsed = value.tiers.map(parsePricingTier)
+    if (parsed.some((tier) => tier === null)) return null
+    tiers = parsed as PricingTier[]
+  }
+
   return {
     snapshotKey: value.snapshotKey,
     provider: value.provider,
@@ -118,6 +155,7 @@ function parsePricingSnapshot(value: unknown): SyncPricingSnapshot | null {
     outputCost: value.outputCost,
     cacheReadCost: value.cacheReadCost,
     cacheWriteCost: value.cacheWriteCost,
+    tiers,
   }
 }
 

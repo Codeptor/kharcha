@@ -1,0 +1,1 @@
+ALTER TABLE "pricing_snapshots" ADD COLUMN "tiers" jsonb;
