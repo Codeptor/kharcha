@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { PricingSnapshot } from "../types"
+import type { PricingSnapshot, PricingTier } from "../types"
 
 export type ModelsDevCatalogRow = {
   providerId: string
@@ -8,6 +8,7 @@ export type ModelsDevCatalogRow = {
   outputCost: number | null
   cacheReadCost: number | null
   cacheWriteCost: number | null
+  tiers?: PricingTier[]
 }
 
 const flatRowSchema = z.object({
@@ -27,8 +28,22 @@ const nestedCostSchema = z
     cache_write: z.number().nullable().optional(),
     cacheRead: z.number().nullable().optional(),
     cacheWrite: z.number().nullable().optional(),
+    tiers: z.array(z.unknown()).optional(),
+    context_over_200k: z.unknown().optional(),
   })
   .passthrough()
+
+const tierSchema = z
+  .object({
+    input: z.number().nullable().optional(),
+    output: z.number().nullable().optional(),
+    cache_read: z.number().nullable().optional(),
+    cache_write: z.number().nullable().optional(),
+    tier: z.object({ type: z.string(), size: z.number() }).optional(),
+  })
+  .passthrough()
+
+const legacyTierSchema = tierSchema.omit({ tier: true })
 
 const nestedModelSchema = z
   .object({
@@ -44,13 +59,57 @@ const nestedProviderSchema = z
   })
   .passthrough()
 
+function parseTiers(
+  cost: z.infer<typeof nestedCostSchema> | undefined,
+  base: Omit<PricingSnapshot, "tiers">
+): PricingTier[] | undefined {
+  if (!cost) return undefined
+
+  // A field a tier leaves out bills at the base rate.
+  const inherit = (value: number | null | undefined, fallback: number | null) =>
+    value === undefined ? fallback : value
+  const tiers: PricingTier[] = []
+
+  for (const raw of cost.tiers ?? []) {
+    const parsed = tierSchema.safeParse(raw)
+    if (!parsed.success) continue
+    const { tier, ...rates } = parsed.data
+    if (tier?.type !== "context" || !(tier.size > 0)) continue
+    tiers.push({
+      promptTokensAbove: tier.size,
+      inputCost: inherit(rates.input, base.inputCost),
+      outputCost: inherit(rates.output, base.outputCost),
+      cacheReadCost: inherit(rates.cache_read, base.cacheReadCost),
+      cacheWriteCost: inherit(rates.cache_write, base.cacheWriteCost),
+    })
+  }
+
+  if (cost.tiers === undefined) {
+    const legacy = legacyTierSchema.safeParse(cost.context_over_200k)
+    if (legacy.success) {
+      tiers.push({
+        promptTokensAbove: 200_000,
+        inputCost: inherit(legacy.data.input, base.inputCost),
+        outputCost: inherit(legacy.data.output, base.outputCost),
+        cacheReadCost: inherit(legacy.data.cache_read, base.cacheReadCost),
+        cacheWriteCost: inherit(legacy.data.cache_write, base.cacheWriteCost),
+      })
+    }
+  }
+
+  if (tiers.length === 0) return undefined
+  return tiers.sort((a, b) => a.promptTokensAbove - b.promptTokensAbove)
+}
+
 function normalizeCost(cost: z.infer<typeof nestedCostSchema> | undefined) {
-  return {
+  const base = {
     inputCost: cost?.input ?? null,
     outputCost: cost?.output ?? null,
     cacheReadCost: cost?.cache_read ?? cost?.cacheRead ?? null,
     cacheWriteCost: cost?.cache_write ?? cost?.cacheWrite ?? null,
   }
+  const tiers = parseTiers(cost, base)
+  return tiers ? { ...base, tiers } : base
 }
 
 function parseFlatCatalog(input: unknown): ModelsDevCatalogRow[] {
@@ -122,5 +181,6 @@ export function toPricingSnapshot(row: ModelsDevCatalogRow): PricingSnapshot {
     outputCost: row.outputCost,
     cacheReadCost: row.cacheReadCost,
     cacheWriteCost: row.cacheWriteCost,
+    ...(row.tiers ? { tiers: row.tiers } : {}),
   }
 }

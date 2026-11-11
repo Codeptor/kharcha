@@ -180,3 +180,29 @@ describe("buildSyncBatch", () => {
     })
   })
 })
+
+describe("buildSyncBatch group mode", () => {
+  it("reports unpriced when any slice of the group is unpriced with tokens", async () => {
+    const slice = (exactCostUsd: number | null, preventEstimatedCost: boolean) => ({
+      source: "codex" as const,
+      provider: "openai",
+      model: "gpt-5",
+      day: "2026-03-20",
+      startedAt: null,
+      inputTokens: 1000,
+      outputTokens: 10,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      exactCostUsd,
+      preventEstimatedCost,
+      sourceSessionHash: "same",
+    })
+    const batch = await buildSyncBatch(
+      [slice(1, false), slice(null, true)],
+      new Map()
+    )
+
+    expect(batch.rows).toHaveLength(1)
+    expect(batch.rows[0]?.pricingMode).toBe("unpriced")
+  })
+})

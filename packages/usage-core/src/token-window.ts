@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { open, readdir, readFile, rename, stat, writeFile } from "node:fs/promises"
 import { normalizeModelKey } from "./model-aliases"
 import { CUSTOM_PRICING } from "./pricing/custom-pricing"
+import { priceCounters, resolveRates } from "./pricing/freeze-pricing"
 import { readAgyUsage } from "./sources/agy"
 import { toDay } from "./sources/claude-code"
 import { readCodexRollouts } from "./sources/codex"
@@ -78,8 +79,12 @@ type FileEntry = {
   offset: number
   /** Size at the last read, so truncation or rewrite is detectable. */
   size: number
-  /** day -> normalized model -> counters, limited to the tracked window. */
-  days: Record<string, Record<string, TokenCounters>>
+  /**
+   * day -> normalized model -> tier band -> counters, limited to the tracked
+   * window. Band 0 is base pricing; band n is the nth tier of the model's
+   * `WindowCache.bounds`, so a response keeps the tier it fell into.
+   */
+  days: Record<string, Record<string, Record<string, TokenCounters>>>
   /**
    * day -> concatenated 8-byte hashes of the response keys this file has
    * already contributed. Kept per file so a rewritten file can forget them and
@@ -91,9 +96,11 @@ type FileEntry = {
 }
 
 type WindowCache = {
-  schema: 3
+  schema: 4
   windowDays: number
   source: string
+  /** Tier thresholds each model's counters were banded with; a pricing change that moves them voids the cache. */
+  bounds: Record<string, number[]>
   files: Record<string, FileEntry>
 }
 
@@ -110,10 +117,12 @@ function hashResponseKey(key: string): string {
  */
 type ModelTotals = {
   counters: TokenCounters
-  pricedCounters: TokenCounters
-  unpricedCounters: TokenCounters
-  exactCostUsd: number
-  hasExactCost: boolean
+  /** Tokens that must stay unpriced because their source forbids an estimate. */
+  unpricedTokens: number
+  /** Tokens that needed a rate the catalog does not have. */
+  missingRate: boolean
+  /** Cost reported by the source plus the cost estimated per request. */
+  costUsd: number
 }
 
 export type TokenWindowSources = {
@@ -167,10 +176,9 @@ function totalOf(counters: TokenCounters): number {
 function emptyModelTotals(): ModelTotals {
   return {
     counters: emptyCounters(),
-    pricedCounters: emptyCounters(),
-    unpricedCounters: emptyCounters(),
-    exactCostUsd: 0,
-    hasExactCost: false,
+    unpricedTokens: 0,
+    missingRate: false,
+    costUsd: 0,
   }
 }
 
@@ -242,7 +250,13 @@ function parseUsageLine(line: string): { key: string | null; day: string; model:
  * Reads the bytes appended since the last run, advancing the offset only past
  * complete lines so a write in flight is retried instead of half-counted.
  */
-async function ingestFile(path: string, entry: FileEntry, windowStart: string, seen: Set<string>): Promise<number> {
+async function ingestFile(
+  path: string,
+  entry: FileEntry,
+  windowStart: string,
+  seen: Set<string>,
+  bandOf: (model: string, counters: TokenCounters) => number
+): Promise<number> {
   const handle = await open(path, "r")
   try {
     const info = await handle.stat()
@@ -290,7 +304,8 @@ async function ingestFile(path: string, entry: FileEntry, windowStart: string, s
         }
         if (record.day < windowStart) continue
         const day = (entry.days[record.day] ??= {})
-        addCounters((day[record.model] ??= emptyCounters()), record.counters)
+        const bands = (day[record.model] ??= {})
+        addCounters((bands[bandOf(record.model, record.counters)] ??= emptyCounters()), record.counters)
       }
 
       carry = Buffer.from(data.subarray(lastNewline + 1))
@@ -322,14 +337,28 @@ function pruneCache(cache: WindowCache, windowStart: string, livePaths: Set<stri
   }
 }
 
-async function loadCache(cachePath: string | null, windowDays: number, source: string): Promise<WindowCache> {
-  const fresh: WindowCache = { schema: 3, windowDays, source, files: {} }
+function boundsOf(pricing: Map<string, PricingSnapshot>, model: string): number[] {
+  return (pricing.get(model)?.tiers ?? []).map(tier => tier.promptTokensAbove)
+}
+
+async function loadCache(
+  cachePath: string | null,
+  windowDays: number,
+  source: string,
+  pricing: Map<string, PricingSnapshot>
+): Promise<WindowCache> {
+  const fresh: WindowCache = { schema: 4, windowDays, source, bounds: {}, files: {} }
   if (!cachePath) return fresh
   try {
     const parsed = JSON.parse(await readFile(cachePath, "utf8")) as WindowCache
     // A different root, window size or schema cannot reuse buckets or offsets.
-    if (parsed?.schema !== 3 || parsed.windowDays !== windowDays || parsed.source !== source || typeof parsed.files !== "object")
+    if (parsed?.schema !== 4 || parsed.windowDays !== windowDays || parsed.source !== source || typeof parsed.files !== "object")
       return fresh
+    // Counters were split by tier thresholds; if the current pricing draws them
+    // elsewhere for any cached model, the split cannot be reused.
+    for (const [model, bounds] of Object.entries(parsed.bounds ?? {})) {
+      if (JSON.stringify(bounds) !== JSON.stringify(boundsOf(pricing, model))) return fresh
+    }
     return parsed
   } catch {
     return fresh
@@ -371,17 +400,8 @@ async function loadPricing(pricingPath: string | null): Promise<Map<string, Pric
   return lookup
 }
 
-function priceCounters(counters: TokenCounters, rate: PricingSnapshot | undefined): number | null {
-  if (!rate || (rate.inputCost == null && rate.outputCost == null)) return null
-  const cacheWrite = counters.cacheWriteTokens
-  const cacheWrite1h = Math.min(counters.cacheWrite1hTokens, cacheWrite)
-  return (
-    (counters.inputTokens / 1_000_000) * (rate.inputCost ?? 0) +
-    (counters.outputTokens / 1_000_000) * (rate.outputCost ?? 0) +
-    (counters.cacheReadTokens / 1_000_000) * (rate.cacheReadCost ?? 0) +
-    ((cacheWrite - cacheWrite1h) / 1_000_000) * (rate.cacheWriteCost ?? 0) +
-    (cacheWrite1h / 1_000_000) * (rate.inputCost ?? 0) * 2
-  )
+function hasRate(rate: PricingSnapshot | undefined): rate is PricingSnapshot {
+  return rate !== undefined && (rate.inputCost != null || rate.outputCost != null)
 }
 
 type SourceRead = {
@@ -478,7 +498,13 @@ export async function runTokenWindow(options: TokenWindowOptions): Promise<Token
   const bySource = new Map<UsageSlice["source"], number>()
 
   // Claude Code: incremental over the JSONL transcripts
-  const cache = await loadCache(cachePath, windowDays, options.root)
+  const cache = await loadCache(cachePath, windowDays, options.root, pricing)
+  cache.bounds ??= {}
+  const bandOf = (model: string, counters: TokenCounters): number => {
+    const bounds = (cache.bounds[model] ??= boundsOf(pricing, model))
+    const prompt = counters.inputTokens + counters.cacheReadTokens + counters.cacheWriteTokens
+    return bounds.filter(bound => prompt > bound).length
+  }
   const files = (await collectJsonlFiles(options.root)).sort()
   const livePaths = new Set(files)
   const seen = loadSeenKeys(cache)
@@ -496,7 +522,7 @@ export async function runTokenWindow(options: TokenWindowOptions): Promise<Token
       cold = true
       entry = cache.files[path] = { offset: 0, size: 0, days: {}, keys: {} }
     }
-    const read = await ingestFile(path, entry, windowStart, seen)
+    const read = await ingestFile(path, entry, windowStart, seen, bandOf)
     if (read > 0) {
       filesRead += 1
       bytesRead += read
@@ -508,14 +534,26 @@ export async function runTokenWindow(options: TokenWindowOptions): Promise<Token
   for (const entry of Object.values(cache.files)) {
     for (const [day, models] of Object.entries(entry.days)) {
       if (day < windowStart || day > windowEnd) continue
-      for (const [model, counters] of Object.entries(models)) {
-        if (totalOf(counters) === 0) continue
-        const totals = byModel.get(model) ?? emptyModelTotals()
-        addCounters(totals.counters, counters)
-        addCounters(totals.pricedCounters, counters)
-        byModel.set(model, totals)
-        byDay.set(day, (byDay.get(day) ?? 0) + totalOf(counters))
-        bySource.set("claude-code", (bySource.get("claude-code") ?? 0) + totalOf(counters))
+      for (const [model, bands] of Object.entries(models)) {
+        const rate = pricing.get(model)
+        for (const [band, counters] of Object.entries(bands)) {
+          if (totalOf(counters) === 0) continue
+          const totals = byModel.get(model) ?? emptyModelTotals()
+          addCounters(totals.counters, counters)
+          if (hasRate(rate)) {
+            // Any prompt size inside the band resolves to the same tier.
+            const above = Number(band) === 0 ? 0 : cache.bounds[model]![Number(band) - 1]! + 1
+            totals.costUsd += priceCounters(
+              resolveRates(rate, { inputTokens: above, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }),
+              counters
+            )
+          } else {
+            totals.missingRate = true
+          }
+          byModel.set(model, totals)
+          byDay.set(day, (byDay.get(day) ?? 0) + totalOf(counters))
+          bySource.set("claude-code", (bySource.get("claude-code") ?? 0) + totalOf(counters))
+        }
       }
     }
   }
@@ -543,13 +581,15 @@ export async function runTokenWindow(options: TokenWindowOptions): Promise<Token
       const model = `${row.provider}:${row.model}`
       const totals = byModel.get(model) ?? emptyModelTotals()
       addCounters(totals.counters, counters)
+      const rate = pricing.get(model)
       if (row.exactCostUsd !== null && row.exactCostUsd !== undefined) {
-        totals.hasExactCost = true
-        totals.exactCostUsd += row.exactCostUsd
+        totals.costUsd += row.exactCostUsd
       } else if (row.preventEstimatedCost) {
-        addCounters(totals.unpricedCounters, counters)
+        totals.unpricedTokens += totalOf(counters)
+      } else if (hasRate(rate)) {
+        totals.costUsd += priceCounters(resolveRates(rate, counters), counters)
       } else {
-        addCounters(totals.pricedCounters, counters)
+        totals.missingRate = true
       }
       byModel.set(model, totals)
       byDay.set(row.day, (byDay.get(row.day) ?? 0) + totalOf(counters))
@@ -566,16 +606,12 @@ export async function runTokenWindow(options: TokenWindowOptions): Promise<Token
   for (const [model, modelTotals] of byModel) {
     addCounters(totals, modelTotals.counters)
 
-    const pricedTokens = totalOf(modelTotals.pricedCounters)
-    const pricedCost = pricedTokens === 0 ? 0 : priceCounters(modelTotals.pricedCounters, pricing.get(model))
-    const isUnpriced = totalOf(modelTotals.unpricedCounters) > 0 || (pricedTokens > 0 && pricedCost === null)
-
     let cost: number | null
-    if (isUnpriced) {
+    if (modelTotals.unpricedTokens > 0 || modelTotals.missingRate) {
       cost = null
       unpriced.push(model)
     } else {
-      cost = modelTotals.exactCostUsd + (pricedCost ?? 0)
+      cost = modelTotals.costUsd
       costUsd += cost
       pricedModels += 1
     }

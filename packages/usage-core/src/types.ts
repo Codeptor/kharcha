@@ -5,11 +5,22 @@ export type NormalizedModelKey = {
   model: string
 }
 
+export type PricingTier = {
+  /** Applies to a request whose prompt (input + cache-read + cache-write tokens) is strictly greater than this. */
+  promptTokensAbove: number
+  inputCost: number | null
+  outputCost: number | null
+  cacheReadCost: number | null
+  cacheWriteCost: number | null
+}
+
 export type PricingSnapshot = {
   inputCost: number | null
   outputCost: number | null
   cacheReadCost: number | null
   cacheWriteCost: number | null
+  /** Ascending by promptTokensAbove. Absent (undefined) for flat pricing; never an empty array. */
+  tiers?: PricingTier[]
 }
 
 export type UsageSlice = {

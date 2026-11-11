@@ -2,10 +2,16 @@ export { normalizeModelKey } from "./model-aliases"
 export type {
   PricingMode,
   PricingSnapshot,
+  PricingTier,
   NormalizedModelKey,
   UsageSlice,
 } from "./types"
-export { freezePricing, parseModelsDevCatalog } from "./pricing/freeze-pricing"
+export {
+  freezePricing,
+  parseModelsDevCatalog,
+  priceCounters,
+  resolveRates,
+} from "./pricing/freeze-pricing"
 export { fetchModelsDevCatalog, toPricingSnapshot } from "./pricing/models-dev"
 export { CUSTOM_PRICING } from "./pricing/custom-pricing"
 export { buildSyncBatch } from "./build-sync-batch"

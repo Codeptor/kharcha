@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { freezePricing } from "./pricing/freeze-pricing"
 import { normalizeModelKey } from "./model-aliases"
-import type { PricingMode, PricingSnapshot, UsageSlice } from "./types"
+import type { PricingMode, PricingSnapshot, PricingTier, UsageSlice } from "./types"
 
 export type SyncPricingLookup = Map<string, PricingSnapshot>
 
@@ -29,6 +29,7 @@ export type SyncPricingSnapshot = {
   outputCost: number | null
   cacheReadCost: number | null
   cacheWriteCost: number | null
+  tiers: PricingTier[] | null
 }
 
 export type SyncHourBucket = {
@@ -44,6 +45,9 @@ export type SyncBatch = {
   hourBuckets: SyncHourBucket[]
 }
 
+// Ordered most to least certain; a group reports the least certain slice.
+const MODES: PricingMode[] = ["exact", "estimated", "unpriced"]
+
 function hashSnapshot(
   provider: string,
   model: string,
@@ -58,6 +62,7 @@ function hashSnapshot(
         snapshot.outputCost ?? "",
         snapshot.cacheReadCost ?? "",
         snapshot.cacheWriteCost ?? "",
+        ...(snapshot.tiers ? [JSON.stringify(snapshot.tiers)] : []),
       ].join(":")
     )
     .digest("hex")
@@ -68,6 +73,8 @@ export async function buildSyncBatch(
   pricingLookup: SyncPricingLookup
 ): Promise<SyncBatch> {
   const deduped = new Map<string, SyncBatchRow>()
+  // Least certain mode seen per group; -1 until a slice that counts shows up.
+  const groupCertainty = new Map<string, number>()
   const snapshots = new Map<string, SyncPricingSnapshot>()
   const hourBuckets = new Map<string, SyncHourBucket>()
 
@@ -120,13 +127,30 @@ export async function buildSyncBatch(
           outputCost: pricing.snapshot.outputCost,
           cacheReadCost: pricing.snapshot.cacheReadCost,
           cacheWriteCost: pricing.snapshot.cacheWriteCost,
+          tiers: pricing.snapshot.tiers ?? null,
         })
       }
     }
 
+    const carriesTokens =
+      (row.inputTokens ?? 0) +
+        (row.outputTokens ?? 0) +
+        (row.cacheReadTokens ?? 0) +
+        (row.cacheWriteTokens ?? 0) +
+        (row.aggregateTokens ?? 0) >
+      0
+    // An unpriced slice with no tokens hides nothing, so it does not lower the group.
+    const certainty =
+      pricing.pricingMode === "unpriced" && !carriesTokens
+        ? -1
+        : MODES.indexOf(pricing.pricingMode)
+    const groupMode = Math.max(groupCertainty.get(dedupeKey) ?? -1, certainty)
+    groupCertainty.set(dedupeKey, groupMode)
+
     if (deduped.has(dedupeKey)) {
       const existing = deduped.get(dedupeKey)!
       existing.costUsd += pricing.costUsd
+      existing.pricingSnapshotKey ??= pricingSnapshotKey
       if (row.inputTokens != null)
         existing.inputTokens = (existing.inputTokens ?? 0) + row.inputTokens
       if (row.outputTokens != null)
@@ -166,6 +190,11 @@ export async function buildSyncBatch(
         hourBuckets.set(k, cur)
       }
     }
+  }
+
+  for (const [key, row] of deduped) {
+    const certainty = groupCertainty.get(key) ?? -1
+    row.pricingMode = certainty < 0 ? "unpriced" : MODES[certainty]!
   }
 
   return {
