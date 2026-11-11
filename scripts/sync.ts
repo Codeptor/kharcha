@@ -49,143 +49,145 @@ async function resolveWindowsClaudeDirs(): Promise<string[]> {
   return dirs
 }
 
+type PricingEntry = ReturnType<typeof toPricingSnapshot>
+
+// First-party vendors price their own models; hosts resell them. A borrowed
+// retail rate comes from the best tier, then the cheapest non-zero entry in it.
+const PROVIDER_TIERS = [
+  new Set([
+    "anthropic",
+    "openai",
+    "google",
+    "deepseek",
+    "moonshotai",
+    "minimax",
+    "mistral",
+    "cohere",
+    "zai",
+    "alibaba",
+    "xiaomi",
+    "xai",
+    "meta",
+  ]),
+  new Set([
+    "groq",
+    "amazon-bedrock",
+    "azure",
+    "azure-cognitive-services",
+    "vertex",
+    "deepinfra",
+    "fireworks",
+    "together",
+  ]),
+]
+
+function providerTier(id: string) {
+  const tier = PROVIDER_TIERS.findIndex((set) => set.has(id))
+  return tier === -1 ? PROVIDER_TIERS.length : tier
+}
+
+const splitKey = (key: string) => {
+  const colon = key.indexOf(":")
+  return { providerId: key.slice(0, colon), modelId: key.slice(colon + 1) }
+}
+const lastSegment = (id: string) => (id.split("/").pop() ?? id).toLowerCase()
+const hasRate = (snap: PricingEntry) =>
+  (snap.inputCost ?? 0) > 0 || (snap.outputCost ?? 0) > 0
+
+// Retail rate of the same model (matched by trailing segment, any case) under
+// the best provider that publishes one. The snapshot is returned as is.
+function borrowRetail(
+  lookup: Map<string, PricingEntry>,
+  key: string
+): PricingEntry | null {
+  const tail = lastSegment(splitKey(key).modelId)
+  let best: PricingEntry | null = null
+  let bestTier = Number.POSITIVE_INFINITY
+  let bestRate = Number.POSITIVE_INFINITY
+  for (const [otherKey, snap] of lookup) {
+    if (otherKey === key || !hasRate(snap)) continue
+    const other = splitKey(otherKey)
+    if (lastSegment(other.modelId) !== tail) continue
+    const rate = (snap.inputCost ?? 0) + (snap.outputCost ?? 0)
+    const tier = providerTier(other.providerId)
+    if (tier < bestTier || (tier === bestTier && rate < bestRate)) {
+      bestTier = tier
+      bestRate = rate
+      best = snap
+    }
+  }
+  return best
+}
+
 async function loadPricingLookup(neededKeys: Set<string>) {
   console.log("  fetching pricing catalog from models.dev...")
   const catalog = await fetchModelsDevCatalog()
-  const lookup = new Map<string, ReturnType<typeof toPricingSnapshot>>()
+  const lookup = new Map<string, PricingEntry>()
 
   for (const row of catalog) {
     lookup.set(`${row.providerId}:${row.modelId}`, toPricingSnapshot(row))
   }
 
   // NVIDIA NIM is free-tier hosted; models.dev lists most NIM models at $0/$0.
-  // For tracking "what would these tokens cost retail", swap $0 NIM entries
-  // with the most expensive equivalent priced under another provider, matched
-  // by trailing model-name segment.
-  const lastSegment = (id: string) => id.split("/").pop() ?? id
-  const nimZeroKeys: string[] = []
-  for (const [key, snap] of lookup) {
-    if (!key.startsWith("nvidia:")) continue
-    const allZero = (snap.inputCost ?? 0) === 0 && (snap.outputCost ?? 0) === 0
-    if (allZero) nimZeroKeys.push(key)
+  // Swap those entries for the retail equivalent so the tokens carry a shadow cost.
+  let nimBorrowed = 0
+  for (const [key, snap] of [...lookup]) {
+    if (!key.startsWith("nvidia:") || hasRate(snap)) continue
+    const retail = borrowRetail(lookup, key)
+    if (!retail) continue
+    lookup.set(key, retail)
+    nimBorrowed += 1
   }
-  // Prefer "native" first-party providers, then well-known cheap hosts,
-  // and only fall back to anything else. Within the chosen tier, pick the
-  // cheapest non-zero entry so the shadow cost reflects realistic retail.
-  const PROVIDER_TIERS = [
-    new Set([
-      "anthropic",
-      "openai",
-      "moonshotai",
-      "deepseek",
-      "groq",
-      "google",
-      "mistral",
-      "cohere",
-      "minimax",
-    ]),
-    new Set([
-      "amazon-bedrock",
-      "azure",
-      "azure-cognitive-services",
-      "vertex",
-      "deepinfra",
-      "fireworks",
-      "together",
-    ]),
-  ]
-  const providerTier = (id: string) => {
-    for (let i = 0; i < PROVIDER_TIERS.length; i++) {
-      if (PROVIDER_TIERS[i]!.has(id)) return i
-    }
-    return PROVIDER_TIERS.length
-  }
-  let shadowed = 0
-  for (const key of nimZeroKeys) {
-    const modelId = key.slice("nvidia:".length)
-    const tail = lastSegment(modelId)
-    let best: ReturnType<typeof toPricingSnapshot> | null = null
-    let bestTier = Number.POSITIVE_INFINITY
-    let bestRate = Number.POSITIVE_INFINITY
-    for (const [otherKey, otherSnap] of lookup) {
-      if (otherKey === key) continue
-      const colon = otherKey.indexOf(":")
-      const providerId = otherKey.slice(0, colon)
-      const otherModel = otherKey.slice(colon + 1)
-      if (lastSegment(otherModel) !== tail) continue
-      const rate = (otherSnap.inputCost ?? 0) + (otherSnap.outputCost ?? 0)
-      if (rate <= 0) continue
-      const tier = providerTier(providerId)
-      if (tier < bestTier || (tier === bestTier && rate < bestRate)) {
-        bestTier = tier
-        bestRate = rate
-        best = otherSnap
-      }
-    }
-    if (best) {
-      lookup.set(key, best)
-      shadowed += 1
-    }
-  }
-  if (shadowed > 0)
-    console.log(
-      `  shadow-priced ${shadowed} NVIDIA NIM models from retail equivalents`
-    )
+  if (nimBorrowed > 0) console.log(`  NIM: ${nimBorrowed} models borrow retail rates`)
 
-  // Override with pricing for models models.dev does not list (e.g. Sakana Fugu).
+  // Override with pricing for models models.dev does not list.
   for (const [key, snapshot] of Object.entries(CUSTOM_PRICING)) {
     lookup.set(key, snapshot)
   }
 
-  // QwenCloud (Alibaba Model Studio) keeps the `qwencloud` provider label but
-  // publishes the same token rates as the `alibaba` provider. Mirror every
-  // alibaba catalog price onto the matching `qwencloud:*` key so the models.dev
-  // catalog stays the live source; CUSTOM_PRICING above covers the gaps.
+  // QwenCloud (Alibaba Model Studio) sells at Alibaba's own pay-as-you-go
+  // prices, so it mirrors the `alibaba` catalog; models.dev lists the Token
+  // Plan itself at $0. Gaps fall through to the gateway rule below.
   for (const [key, snapshot] of [...lookup]) {
     if (!key.startsWith("alibaba:")) continue
     lookup.set(`qwencloud:${key.slice("alibaba:".length)}`, snapshot)
   }
 
-  // Gateway providers resell other vendors' models without publishing rates of
-  // their own (NIM is free-tier hosted, TokenRouter routes Moonshot, OpenCode
-  // proxies its own ids). Borrow the retail rate of the same model under a
-  // provider that does publish one, so these tokens are not silently free. A
-  // model whose id says free is left alone: that is its actual rate.
-  const GATEWAYS = new Set(["nvidia", "tokenrouter", "opencode", "openrouter"])
-  const isFree = (modelId: string) => /(^|[-_/])free($|[-_/])|free$/i.test(modelId)
-  let gatewayShadowed = 0
+  // A needed key with no exact entry takes the entry of the same provider whose
+  // model id differs only in case.
+  const byFoldedKey = new Map<string, PricingEntry>()
+  for (const [key, snap] of lookup) byFoldedKey.set(key.toLowerCase(), snap)
   for (const key of neededKeys) {
-    const colon = key.indexOf(":")
-    const providerId = key.slice(0, colon)
-    if (!GATEWAYS.has(providerId)) continue
-    const modelId = key.slice(colon + 1)
-    if (isFree(modelId)) continue
-    const existing = lookup.get(key)
-    if (existing && ((existing.inputCost ?? 0) > 0 || (existing.outputCost ?? 0) > 0)) continue
-    const tail = lastSegment(modelId)
-    let best: ReturnType<typeof toPricingSnapshot> | null = null
-    let bestTier = Number.POSITIVE_INFINITY
-    let bestRate = Number.POSITIVE_INFINITY
-    for (const [otherKey, otherSnap] of lookup) {
-      if (otherKey === key) continue
-      const otherModel = otherKey.slice(otherKey.indexOf(":") + 1)
-      if (lastSegment(otherModel) !== tail) continue
-      const rate = (otherSnap.inputCost ?? 0) + (otherSnap.outputCost ?? 0)
-      if (rate <= 0) continue
-      const tier = providerTier(otherKey.slice(0, otherKey.indexOf(":")))
-      if (tier < bestTier || (tier === bestTier && rate < bestRate)) {
-        bestTier = tier
-        bestRate = rate
-        best = otherSnap
-      }
-    }
-    if (best) {
-      lookup.set(key, best)
-      gatewayShadowed += 1
-    }
+    if (lookup.has(key)) continue
+    const folded = byFoldedKey.get(key.toLowerCase())
+    if (folded) lookup.set(key, folded)
   }
-  if (gatewayShadowed > 0)
-    console.log(`  shadow-priced ${gatewayShadowed} gateway models from retail equivalents`)
+
+  // Gateways resell other vendors' models without publishing rates of their
+  // own. Borrow the retail rate of the same model; a model whose id says free
+  // with no catalog entry is genuinely $0.
+  const GATEWAYS = new Set(["nvidia", "tokenrouter", "opencode", "openrouter", "qwencloud"])
+  const isFree = (modelId: string) => /(^|[-_/])free($|[-_/])|free$/i.test(modelId)
+  let gatewayBorrowed = 0
+  let freeModels = 0
+  for (const key of neededKeys) {
+    const { providerId, modelId } = splitKey(key)
+    if (!GATEWAYS.has(providerId)) continue
+    const existing = lookup.get(key)
+    if (existing && hasRate(existing)) continue
+    if (isFree(modelId)) {
+      if (existing) continue
+      lookup.set(key, { inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0 })
+      freeModels += 1
+      continue
+    }
+    const retail = borrowRetail(lookup, key)
+    if (!retail) continue
+    lookup.set(key, retail)
+    gatewayBorrowed += 1
+  }
+  if (gatewayBorrowed > 0) console.log(`  gateways: ${gatewayBorrowed} models borrow retail rates`)
+  if (freeModels > 0) console.log(`  gateways: ${freeModels} free models at $0`)
 
   console.log(`  ${catalog.length} models loaded`)
   return lookup
