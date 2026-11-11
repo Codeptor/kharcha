@@ -66,6 +66,11 @@ bun run agy:install
   `KHARCHA_PRICING_PATH`). omp and dsh report their own per-row cost, which is
   used as exact; models missing a rate are reported as `unpriced` and excluded
   from the total, never priced at zero.
+- Each request is priced at its context tier with the same functions the sync
+  uses (`resolveRates`, `priceCounters`). The Claude Code cache (schema 4)
+  keeps counters split by the tier band each response fell into and records
+  every model's thresholds, so a pricing change that moves them forces a cold
+  read.
 - Both Claude accounts write into the same `~/.claude/projects` transcripts and
   the JSONL carries no account marker, so the Claude Code part of the window is
   always combined across `claude` and `claude2`. The percentage meter is per
@@ -77,11 +82,33 @@ bun run agy:install
   windows. Only ingest counters reported by the provider or CLI.
 - Mark a row `unpriced` when a non-zero token category has no published rate;
   do not silently price it at zero.
+- Price every request at the context tier its prompt falls into. models.dev
+  publishes the thresholds as `cost.tiers` (older entries use
+  `context_over_200k`), and a tier applies when input + cache-read +
+  cache-write tokens exceed its size. Readers must keep emitting one slice per
+  API response; a slice that sums several requests would bill at the wrong
+  tier. A row that mixes priced and unpriced turns is marked `unpriced`.
 - Gateway providers that resell other vendors' models without publishing rates
-  of their own (NIM, TokenRouter, OpenCode, OpenRouter) borrow the retail rate
-  of the same model under a provider that publishes one, preferring first-party
-  vendors and then well-known hosts. A model whose id says `free` is exempt:
-  zero is its actual rate, not a missing one.
+  of their own (NIM, TokenRouter, OpenCode, OpenRouter, QwenCloud) borrow the
+  retail rate of the same model under a provider that publishes one, matched
+  on the trailing model id in any case, preferring first-party vendors and then
+  well-known hosts. QwenCloud (Alibaba's Token Plan) mirrors Alibaba's own
+  pay-as-you-go catalog first. A model whose id says `free` is exempt: zero is
+  its actual rate, not a missing one, so it prices at $0 even after the catalog
+  drops it.
+- OpenCode's `claude-agent` provider (`opus`, `sonnet`, `fable`) runs Claude
+  Code, so its turns are already in `~/.claude/projects` under the real model
+  ids. The OpenCode reader drops them; reading both doubled those tokens.
+- `CUSTOM_PRICING` holds only models the catalog lacks, each citing its source.
+  An entry replaces the catalog's rate and its tiers, so delete it once
+  models.dev lists the model.
+- Rates are today's catalog prices applied to every row still on disk.
+  Time-of-day pricing (DeepSeek's peak hours, Alibaba's busy hours for its
+  DeepSeek models) and price changes over time are not modeled.
+- The production DB keeps rows whose local source is gone: Claude Code prunes
+  transcripts after 30 days and older Codex rollouts are deleted. Never
+  reconcile the DB against a batch wholesale; delete only keys proven stale
+  (the session is still on disk, or the reader that wrote them was replaced).
 - A turn with no token counters and no cost is not usage. Readers drop those
   rows instead of persisting zero rows, which would otherwise surface
   downstream as unpriced noise.
