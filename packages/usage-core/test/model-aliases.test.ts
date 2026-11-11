@@ -16,6 +16,13 @@ describe("normalizeModelKey", () => {
     })
   })
 
+  it("routes MiniMax models logged through Claude Code to minimax", () => {
+    expect(normalizeModelKey("anthropic", "minimax-m3")).toEqual({
+      provider: "minimax",
+      model: "minimax-m3",
+    })
+  })
+
   it("keeps codex model ids intact", () => {
     expect(normalizeModelKey("openai", "gpt-5.3-codex")).toEqual({
       provider: "openai",

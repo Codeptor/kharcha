@@ -257,6 +257,82 @@ describe("source readers", () => {
     }
   })
 
+  it("drops claude-agent rows because Claude Code transcripts already hold them", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kharcha-opencode-"))
+    const databasePath = join(directory, "opencode.db")
+    const db = new Database(databasePath)
+    const at = Date.UTC(2026, 10, 11, 12)
+
+    try {
+      db.run(`
+        create table message (
+          id text primary key,
+          session_id text not null,
+          time_created integer not null,
+          data text not null
+        );
+      `)
+      db.query("insert into message values (?, ?, ?, ?)").run(
+        "msg_agent",
+        "ses_agent",
+        at,
+        JSON.stringify({
+          role: "assistant",
+          providerID: "claude-agent",
+          modelID: "fable",
+          tokens: { input: 10, output: 5 },
+        })
+      )
+    } finally {
+      db.close()
+    }
+
+    try {
+      expect(await readOpenCodeUsage(databasePath)).toEqual([])
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("resolves the generic kimi-for-coding id to K2.7 Code only inside its changelog window", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kharcha-opencode-"))
+    const databasePath = join(directory, "opencode.db")
+    const db = new Database(databasePath)
+
+    try {
+      db.run(`
+        create table session_message (
+          id text primary key,
+          session_id text not null,
+          type text not null,
+          time_created integer not null,
+          data text not null
+        );
+      `)
+      const data = JSON.stringify({
+        model: { providerID: "kimi-for-coding", id: "kimi-for-coding" },
+        tokens: { input: 10, output: 5 },
+      })
+      const insert = db.query(
+        "insert into session_message values (?, ?, 'assistant', ?, ?)"
+      )
+      insert.run("msg_in", "ses_k", new Date(2026, 7, 17, 12).getTime(), data)
+      insert.run("msg_out", "ses_k", new Date(2026, 8, 12, 12).getTime(), data)
+    } finally {
+      db.close()
+    }
+
+    try {
+      const rows = await readOpenCodeUsage(databasePath)
+      expect(rows.map(({ day, provider, model }) => ({ day, provider, model }))).toEqual([
+        { day: "2026-08-17", provider: "moonshotai", model: "kimi-k2.7-code" },
+        { day: "2026-09-12", provider: "kimi-for-coding", model: "kimi-for-coding" },
+      ])
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("reads OpenCode2 session messages when there is no legacy message table", async () => {
     const directory = await mkdtemp(join(tmpdir(), "kharcha-opencode-"))
     const databasePath = join(directory, "opencode.db")

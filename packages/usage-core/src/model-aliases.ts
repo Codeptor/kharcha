@@ -49,11 +49,13 @@ const QWENCLOUD_MODEL_ALIASES: Record<string, string> = {
 }
 
 // Kimi for Coding plan model ids (OpenCode) priced as the Moonshot model they
-// resolve to. The generic `kimi-for-coding` id is left alone: the plan does not
-// say which model served it, so it stays unpriced.
+// resolve to. The generic `kimi-for-coding` id is resolved by date in the
+// OpenCode reader (K2.7 Code, 2026-06-12 to 2026-09-10); outside that window
+// the serving model is unknown and the id stays unpriced.
 const KIMI_FOR_CODING_MODELS: Record<string, string> = {
   k2p5: "kimi-k2.5",
   k3: "kimi-k3",
+  "kimi-k2.7-code": "kimi-k2.7-code",
 }
 
 function normalizeAgyModel(model: string): NormalizedModelKey {
@@ -111,6 +113,12 @@ export function normalizeModelKey(
     QWENCLOUD_MODELS.has(qwencloudModel)
   ) {
     return { provider: "qwencloud", model: qwencloudModel }
+  }
+
+  // Claude Code pointed at MiniMax's Anthropic-compatible endpoint logs
+  // provider "anthropic"; models.dev lists the model under `minimax`.
+  if (provider === "anthropic" && /^minimax-/iu.test(model)) {
+    return { provider: "minimax", model }
   }
 
   if (WRAPPED_CLAUDE_PROVIDERS.has(provider)) {

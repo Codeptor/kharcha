@@ -6,6 +6,9 @@ import { Database } from "bun:sqlite"
 import { normalizeModelKey } from "../model-aliases"
 import type { UsageSlice } from "../types"
 
+// OpenCode's claude-agent provider runs Claude Code, whose transcripts already hold these responses.
+const CLAUDE_AGENT_PROVIDER = "claude-agent"
+
 type OpenCodeRecord = {
   id?: string
   session_id?: string
@@ -71,6 +74,20 @@ function toDay(value?: string | number): string {
   return Number.isNaN(date.getTime()) ? localDate(new Date()) : localDate(date)
 }
 
+// Kimi Code's changelog: K2.7 Code served `kimi-for-coding` from 2026-06-12 until
+// K2.8 Preview replaced it on 2026-09-11 under the same id, so only that window is known.
+function resolveModel(provider: string, model: string, day: string): string {
+  if (
+    provider === "kimi-for-coding" &&
+    model === "kimi-for-coding" &&
+    day >= "2026-06-12" &&
+    day <= "2026-09-10"
+  ) {
+    return "kimi-k2.7-code"
+  }
+  return model
+}
+
 function hashSessionId(sessionId: string): string {
   return createHash("sha256").update(sessionId).digest("hex")
 }
@@ -120,9 +137,11 @@ async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
   if (!record || record.role !== "assistant" || record.error) return []
 
   const provider = record.providerID ?? "opencode"
-  const model = record.modelID ?? "unknown"
-  const normalized = normalizeModelKey(provider, model)
+  if (provider === CLAUDE_AGENT_PROVIDER) return []
   const createdAt = record.time?.created ?? parsed.time_created ?? undefined
+  const day = toDay(createdAt ?? undefined)
+  const model = resolveModel(provider, record.modelID ?? "unknown", day)
+  const normalized = normalizeModelKey(provider, model)
   const tokens = record.tokens ?? {}
 
   return [
@@ -130,7 +149,7 @@ async function readOpenCodeJson(targetPath: string): Promise<UsageSlice[]> {
       source: "opencode",
       provider: normalized.provider,
       model: normalized.model,
-      day: toDay(createdAt ?? undefined),
+      day,
       startedAt: createdAt ? new Date(createdAt).toISOString() : null,
       inputTokens: tokens.input ?? null,
       outputTokens: outputTokens(tokens),
@@ -193,15 +212,16 @@ function sqliteSlice(
   model: string,
   sessionId: string
 ): UsageSlice {
-  const normalized = normalizeModelKey(provider, model)
   const timeCreated = readColumnValue(row, "time_created")
+  const day = toDay(timeCreated ?? readColumnValue(row, "created_at") ?? undefined)
+  const normalized = normalizeModelKey(provider, resolveModel(provider, model, day))
   const cost = numberColumn(row, "cost")
 
   return {
     source: "opencode",
     provider: normalized.provider,
     model: normalized.model,
-    day: toDay(timeCreated ?? readColumnValue(row, "created_at") ?? undefined),
+    day,
     startedAt:
       typeof timeCreated === "number"
         ? new Date(timeCreated).toISOString()
@@ -289,11 +309,13 @@ function readOpenCodeSqlite(targetPath: string, sinceEpochMs: number): UsageSlic
     if (tables.has("message")) {
       for (const row of db.query<SqliteRow, [number]>(messageQuery).iterate(sinceEpochMs)) {
         if (hasError(row)) continue
+        const provider = textColumn(row, "provider_id") ?? "opencode"
+        if (provider === CLAUDE_AGENT_PROVIDER) continue
 
         rows.push(
           sqliteSlice(
             row,
-            textColumn(row, "provider_id") ?? "opencode",
+            provider,
             textColumn(row, "model_id") ?? "unknown",
             sessionKey(row, targetPath)
           )
@@ -306,13 +328,16 @@ function readOpenCodeSqlite(targetPath: string, sinceEpochMs: number): UsageSlic
 
       for (const row of db.query<SqliteRow, [number]>(query).iterate(sinceEpochMs)) {
         if (hasError(row)) continue
+        const provider =
+          textColumn(row, "model_provider_id") ??
+          textColumn(row, "provider_id") ??
+          "opencode"
+        if (provider === CLAUDE_AGENT_PROVIDER) continue
 
         rows.push(
           sqliteSlice(
             row,
-            textColumn(row, "model_provider_id") ??
-              textColumn(row, "provider_id") ??
-              "opencode",
+            provider,
             textColumn(row, "model_model_id") ??
               textColumn(row, "model_id") ??
               "unknown",
@@ -343,7 +368,9 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
       if (!record || record.role !== "assistant" || record.error) continue
 
       const provider = record.providerID ?? "opencode"
-      const model = record.modelID ?? "unknown"
+      if (provider === CLAUDE_AGENT_PROVIDER) continue
+      const day = toDay(parsed.time_created ?? record.time?.created ?? undefined)
+      const model = resolveModel(provider, record.modelID ?? "unknown", day)
       const normalized = normalizeModelKey(provider, model)
       const tokens = record.tokens ?? {}
 
@@ -351,7 +378,7 @@ async function readOpenCodeJsonl(targetPath: string): Promise<UsageSlice[]> {
         source: "opencode",
         provider: normalized.provider,
         model: normalized.model,
-        day: toDay(parsed.time_created ?? record.time?.created ?? undefined),
+        day,
         startedAt: parsed.time_created
           ? new Date(parsed.time_created).toISOString()
           : null,
