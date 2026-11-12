@@ -43,6 +43,13 @@
       "when": 1794434186094,
       "tag": "0005_pricing_snapshot_tiers",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794457869674,
+      "tag": "0006_catalog_archives",
+      "breakpoints": true
     }
   ]
 }

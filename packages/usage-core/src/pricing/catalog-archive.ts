@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto"
 import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, writeSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { gunzipSync, gzipSync } from "node:zlib"
 import { parseModelsDevCatalog, type ModelsDevCatalogRow } from "./models-dev"
 
@@ -52,6 +53,21 @@ export function archiveDates(dir: string): string[] {
   } catch {
     return []
   }
+}
+
+const sha256Hex = (text: string) => createHash("sha256").update(text).digest("hex")
+
+function writeFileAtomic(target: string, bytes: Buffer) {
+  mkdirSync(dirname(target), { recursive: true })
+  const tmp = `${target}.${process.pid}.tmp`
+  const fd = openSync(tmp, "w")
+  try {
+    writeSync(fd, bytes)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+  renameSync(tmp, target)
 }
 
 const readArchiveText = (dir: string, date: string) => gunzipSync(readFileSync(join(dir, `${date}.json.gz`))).toString("utf8")
@@ -117,19 +133,36 @@ export function writeCatalogArchive(
     if (same) return { file: `${newest}.json.gz`, written: false }
   }
 
-  mkdirSync(dir, { recursive: true })
   const file = `${localDate(now)}.json.gz`
-  const target = join(dir, file)
-  const tmp = `${target}.${process.pid}.tmp`
-  const fd = openSync(tmp, "w")
-  try {
-    writeSync(fd, gzipSync(text))
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-  renameSync(tmp, target)
+  writeFileAtomic(join(dir, file), gzipSync(text))
   return { file, written: true }
+}
+
+/** Date and uncompressed-JSON sha256 of every readable archive file, oldest first. Unreadable files are skipped with one warning. */
+export function listArchiveFiles(dir: string): { date: string; sha256: string }[] {
+  const files: { date: string; sha256: string }[] = []
+  for (const date of archiveDates(dir)) {
+    try {
+      const text = readArchiveText(dir, date)
+      if (!isObject(JSON.parse(text))) throw new Error("not a JSON object")
+      files.push({ date, sha256: sha256Hex(text) })
+    } catch (error) {
+      warnOnce(join(dir, `${date}.json.gz`), error)
+    }
+  }
+  return files
+}
+
+/** sha256 of the uncompressed JSON text of gzip bytes, the same digest listArchiveFiles reports. Throws on invalid gzip. */
+export const gzipSha256 = (gz: Buffer): string => sha256Hex(gunzipSync(gz).toString("utf8"))
+
+export const readArchiveGzip = (dir: string, date: string): Buffer => readFileSync(join(dir, `${date}.json.gz`))
+
+/** Stores gzip bytes fetched from elsewhere as `date`'s archive file, after checking they hold a JSON object. */
+export function writeArchiveGzip(dir: string, date: string, gz: Buffer): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`invalid archive date ${date}`)
+  if (!isObject(JSON.parse(gunzipSync(gz).toString("utf8")))) throw new Error(`archive ${date} is not a JSON object`)
+  writeFileAtomic(join(dir, `${date}.json.gz`), gz)
 }
 
 export type CatalogArchive = {

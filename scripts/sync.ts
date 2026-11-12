@@ -1,4 +1,4 @@
-import { access, readdir } from "node:fs/promises"
+import { access, appendFile, mkdir, readdir } from "node:fs/promises"
 import { constants as fsConstants } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import {
@@ -7,6 +7,13 @@ import {
   openCatalogArchive,
   acceptCatalog,
   createDatedPricing,
+  derivePricing,
+  gzipSha256,
+  listArchiveFiles,
+  normalizeModelKey,
+  readArchiveGzip,
+  writeArchiveGzip,
+  type PricingSnapshot,
   defaultCatalogDir,
   fetchModelsDevJson,
   readClaudeCodeUsage,
@@ -153,6 +160,124 @@ function formatCost(value: number) {
   return `$${value.toFixed(2)}`
 }
 
+const REQUEST_TIMEOUT_MS = 30_000
+
+function catalogBase(): { base: string; secret: string } | null {
+  const url = process.env.SYNC_URL
+  const secret = process.env.SYNC_SECRET
+  if (!url || !secret) {
+    console.warn("  warning: SYNC_URL and SYNC_SECRET unset; catalog archive restore and upload skipped")
+    return null
+  }
+  if (!url.endsWith("/api/sync")) {
+    console.warn("  warning: SYNC_URL does not end in /api/sync; catalog archive restore and upload skipped")
+    return null
+  }
+  return { base: `${url.slice(0, -"/api/sync".length)}/api/catalog`, secret }
+}
+
+async function catalogRequest(target: string, secret: string, init: RequestInit = {}): Promise<Response> {
+  const response = await fetch(target, {
+    ...init,
+    headers: { ...init.headers, authorization: `Bearer ${secret}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw new Error(`${init.method ?? "GET"} ${target}: ${response.status} ${response.statusText}`)
+  return response
+}
+
+const warnFailure = (step: string, error: unknown) =>
+  console.warn(`  warning: catalog archive ${step} failed (${error instanceof Error ? error.message : String(error)}); continuing`)
+
+async function listRemote(remote: { base: string; secret: string }): Promise<Map<string, string>> {
+  const list = (await (await catalogRequest(remote.base, remote.secret)).json()) as { date: string; sha256: string }[]
+  return new Map(list.map(file => [file.date, file.sha256]))
+}
+
+/** Fetches every archive date the server has and this machine lacks or cannot read. */
+async function restoreArchive(dir: string, remote: { base: string; secret: string }) {
+  try {
+    const have = new Set(listArchiveFiles(dir).map(file => file.date))
+    let restored = 0
+    for (const [date, sha256] of await listRemote(remote)) {
+      if (have.has(date)) continue
+      const response = await catalogRequest(`${remote.base}/${date}`, remote.secret)
+      const gz = Buffer.from(await response.arrayBuffer())
+      try {
+        if (gzipSha256(gz) !== sha256) throw new Error("sha256 differs from the server's list")
+      } catch (error) {
+        console.warn(`  warning: catalog archive ${date} not restored (${error instanceof Error ? error.message : String(error)})`)
+        continue
+      }
+      writeArchiveGzip(dir, date, gz)
+      restored++
+    }
+    console.log(`  catalog archive: restored ${restored} from the server`)
+  } catch (error) {
+    warnFailure("restore", error)
+  }
+}
+
+/** Uploads every local file the server lacks or holds with a different sha256. */
+async function uploadArchive(dir: string, remote: { base: string; secret: string }) {
+  try {
+    const onServer = await listRemote(remote)
+    let uploaded = 0
+    for (const file of listArchiveFiles(dir)) {
+      if (onServer.get(file.date) === file.sha256) continue
+      await catalogRequest(`${remote.base}/${file.date}`, remote.secret, {
+        method: "PUT",
+        headers: { "content-type": "application/gzip", "x-catalog-sha256": file.sha256 },
+        body: new Uint8Array(readArchiveGzip(dir, file.date)),
+      })
+      uploaded++
+    }
+    console.log(`  catalog archive: uploaded ${uploaded} to the server`)
+  } catch (error) {
+    warnFailure("upload", error)
+  }
+}
+
+function flattenRates(snapshot: PricingSnapshot | undefined): Map<string, number | null> {
+  const flat = new Map<string, number | null>()
+  if (!snapshot) return flat
+  const fields = ["inputCost", "outputCost", "cacheReadCost", "cacheWriteCost"] as const
+  for (const field of fields) flat.set(field, snapshot[field] ?? null)
+  for (const tier of snapshot.tiers ?? []) {
+    for (const field of fields) flat.set(`tier>${tier.promptTokensAbove}.${field}`, tier[field] ?? null)
+  }
+  return flat
+}
+
+/** Logs every base-rate or tier change between two catalogs for the models this batch used. */
+async function logRateChanges(
+  keys: Set<string>,
+  prev: { date: string; rows: Parameters<typeof derivePricing>[0] },
+  next: { date: string; rows: Parameters<typeof derivePricing>[0] },
+  logPath: string
+) {
+  const before = derivePricing(prev.rows)
+  const after = derivePricing(next.rows)
+  const lines: string[] = []
+  for (const key of [...keys].sort()) {
+    const old = flattenRates(before.get(key))
+    const now = flattenRates(after.get(key))
+    for (const field of new Set([...old.keys(), ...now.keys()])) {
+      const a = old.get(field)
+      const b = now.get(field)
+      if (a === b) continue
+      lines.push(`  rate change: ${key} ${field} ${a ?? "none"} -> ${b ?? "none"} (archive ${prev.date} -> ${next.date})`)
+    }
+  }
+  if (lines.length > 0) {
+    for (const line of lines) console.log(line)
+    const stamp = new Date().toISOString()
+    await mkdir(dirname(logPath), { recursive: true })
+    await appendFile(logPath, lines.map(line => `${stamp}${line}\n`).join(""))
+  }
+  console.log(`  catalog archive: ${lines.length} rate changes`)
+}
+
 async function main() {
   console.log("\n▸ Reading local usage data...")
   const rows = await loadUsageRows()
@@ -162,14 +287,40 @@ async function main() {
   // A failed or truncated models.dev fetch prices from the existing archive.
   // A dry run keeps today's fetch in memory and writes nothing.
   let memory: Parameters<typeof openCatalogArchive>[1]
+  const remote = dryRun ? null : catalogBase()
+  // Heal a lost or new archive folder before anything is written or priced.
+  if (remote) await restoreArchive(catalogDir, remote)
   try {
     const payload = await fetchModelsDevJson()
     if (dryRun) {
       memory = { date: localDate(new Date()), catalog: acceptCatalog(catalogDir, payload) }
       console.log("  catalog archive: dry run, fetched catalog used in memory, nothing written")
     } else {
+      const before = openCatalogArchive(catalogDir)
+      const prevDate = before.dateFor("9999-12-31")
+      const prevRows = prevDate === null ? [] : before.rows(prevDate)
       const archived = writeCatalogArchive(catalogDir, payload)
       console.log(`  catalog archive: ${archived.written ? "written" : "unchanged"} ${archived.file} (${catalogDir})`)
+      if (remote) await uploadArchive(catalogDir, remote)
+      if (archived.written && prevDate !== null) {
+        const newDate = archived.file.slice(0, -".json.gz".length)
+        const keys = new Set(
+          rows.map(row => {
+            const normalized = normalizeModelKey(row.provider, row.model)
+            return `${normalized.provider}:${normalized.model}`
+          })
+        )
+        try {
+          await logRateChanges(
+            keys,
+            { date: prevDate, rows: prevRows },
+            { date: newDate, rows: openCatalogArchive(catalogDir).rows(newDate) },
+            join(dirname(catalogDir), "rate-changes.log")
+          )
+        } catch (error) {
+          warnFailure("rate-change log", error)
+        }
+      }
     }
   } catch (error) {
     console.warn(`  warning: ${error instanceof Error ? error.message : String(error)}; pricing from the existing archive`)

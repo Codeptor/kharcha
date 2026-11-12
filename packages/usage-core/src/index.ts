@@ -16,8 +16,12 @@ export { fetchModelsDevJson, toPricingSnapshot } from "./pricing/models-dev"
 export {
   acceptCatalog,
   defaultCatalogDir,
+  gzipSha256,
+  listArchiveFiles,
   localDate,
   openCatalogArchive,
+  readArchiveGzip,
+  writeArchiveGzip,
   writeCatalogArchive,
 } from "./pricing/catalog-archive"
 export type { CatalogArchive } from "./pricing/catalog-archive"

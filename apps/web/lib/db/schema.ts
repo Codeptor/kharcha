@@ -80,3 +80,15 @@ export const pricingSnapshots = pgTable("pricing_snapshots", {
     .defaultNow()
     .notNull(),
 })
+
+export const catalogArchives = pgTable("catalog_archives", {
+  date: text("date").primaryKey(),
+  sha256: text("sha256").notNull(),
+  payload: text("payload").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+})
