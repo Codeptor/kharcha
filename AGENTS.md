@@ -109,11 +109,21 @@ bun run agy:install
   archives the models.dev catalog as `YYYY-MM-DD.json.gz` under
   `$XDG_DATA_HOME/kharcha/catalog` (`KHARCHA_CATALOG_DIR`) when it changed, and
   a request uses the newest archive at or before its local day. A model the
-  catalog listed only later takes its first listed price. The archive is
-  persistent data: deleting it re-prices history at the oldest surviving day.
-  Unreadable files are skipped, a payload with under 1,000 models or under 70%
-  of the newest archive is refused, a failed fetch prices from the archive,
-  and `--dry-run` never writes it.
+  catalog listed only later takes its first listed price. Unreadable files are
+  skipped, a payload with under 1,000 models or under 70% of the newest archive
+  is refused, a failed fetch prices from the archive, and `--dry-run` never
+  writes it.
+- The production DB keeps a copy of every archive file (`catalog_archives`,
+  served by `/api/catalog` behind `SYNC_SECRET`). A real sync first restores any
+  file missing or unreadable locally, then uploads files the DB lacks, so a
+  lost folder or a new machine heals before anything is priced. Losing both
+  copies would re-price history at the oldest surviving day.
+- When the catalog changes a rate for a model with usage, the sync prints a
+  `rate change:` line and appends it to `$XDG_DATA_HOME/kharcha/rate-changes.log`.
+  Classify each one: a real vendor change needs nothing, or a `PRICE_HISTORY`
+  entry for the days the catalog lagged the vendor; a catalog mistake needs a
+  `PRICE_HISTORY` entry with the correct rate for the days it was live.
+  Otherwise the mistake stays frozen in those days.
 - models.dev trails vendors by days to weeks, and the archive starts on
   2026-11-12, so verified past rates live in `PRICE_HISTORY`
   (`packages/usage-core/src/pricing/price-history.ts`), each with an `until`
