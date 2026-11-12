@@ -3,7 +3,7 @@ import {
   freezePricing,
   parseModelsDevCatalog,
 } from "../src/pricing/freeze-pricing"
-import { buildSyncBatch } from "../src/build-sync-batch"
+import { buildSyncBatch, fixedPricing } from "../src/build-sync-batch"
 import { CUSTOM_PRICING } from "../src/pricing/custom-pricing"
 
 describe("freezePricing", () => {
@@ -169,7 +169,7 @@ describe("custom pricing", () => {
           sourceSessionHash: "kimi-1",
         },
       ],
-      lookup
+      fixedPricing(lookup)
     )
 
     const row = batch.rows[0]

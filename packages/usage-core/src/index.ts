@@ -12,9 +12,22 @@ export {
   priceCounters,
   resolveRates,
 } from "./pricing/freeze-pricing"
-export { fetchModelsDevCatalog, toPricingSnapshot } from "./pricing/models-dev"
+export { fetchModelsDevJson, toPricingSnapshot } from "./pricing/models-dev"
+export {
+  acceptCatalog,
+  defaultCatalogDir,
+  localDate,
+  openCatalogArchive,
+  writeCatalogArchive,
+} from "./pricing/catalog-archive"
+export type { CatalogArchive } from "./pricing/catalog-archive"
+export { derivePricing } from "./pricing/lookup"
+export { PEAK_RULES, PRICE_HISTORY } from "./pricing/price-history"
+export type { DatedRate, PeakRule } from "./pricing/price-history"
+export { createDatedPricing } from "./pricing/dated-pricing"
+export type { SlicePricing, SlicePricingResolver } from "./pricing/dated-pricing"
 export { CUSTOM_PRICING } from "./pricing/custom-pricing"
-export { buildSyncBatch } from "./build-sync-batch"
+export { buildSyncBatch, fixedPricing } from "./build-sync-batch"
 export type {
   SyncBatch,
   SyncBatchRow,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { freezePricing } from "./pricing/freeze-pricing"
 import { normalizeModelKey } from "./model-aliases"
+import type { SlicePricingResolver } from "./pricing/dated-pricing"
 import type { PricingMode, PricingSnapshot, PricingTier, UsageSlice } from "./types"
 
 export type SyncPricingLookup = Map<string, PricingSnapshot>
@@ -45,6 +46,14 @@ export type SyncBatch = {
   hourBuckets: SyncHourBucket[]
 }
 
+/** Resolver for an undated lookup: every slice prices at the Map's entry for its normalized key. */
+export function fixedPricing(lookup: SyncPricingLookup): SlicePricingResolver {
+  return slice => {
+    const normalized = normalizeModelKey(slice.provider, slice.model)
+    return { snapshot: lookup.get(`${normalized.provider}:${normalized.model}`) ?? null, ignoreExactCost: false }
+  }
+}
+
 // Ordered most to least certain; a group reports the least certain slice.
 const MODES: PricingMode[] = ["exact", "estimated", "unpriced"]
 
@@ -70,7 +79,7 @@ function hashSnapshot(
 
 export async function buildSyncBatch(
   rows: UsageSlice[],
-  pricingLookup: SyncPricingLookup
+  resolvePricing: SlicePricingResolver
 ): Promise<SyncBatch> {
   const deduped = new Map<string, SyncBatchRow>()
   // Least certain mode seen per group; -1 until a slice that counts shows up.
@@ -80,8 +89,7 @@ export async function buildSyncBatch(
 
   for (const row of rows) {
     const normalized = normalizeModelKey(row.provider, row.model)
-    const pricingMatch =
-      pricingLookup.get(`${normalized.provider}:${normalized.model}`) ?? null
+    const { snapshot: pricingMatch, ignoreExactCost } = resolvePricing(row)
     const missingRequiredCacheWritePricing =
       row.requiresCacheWritePricing &&
       (row.cacheWriteTokens ?? 0) > 0 &&
@@ -90,7 +98,7 @@ export async function buildSyncBatch(
       row.preventEstimatedCost || missingRequiredCacheWritePricing
         ? { costUsd: 0, pricingMode: "unpriced" as const, snapshot: null }
         : freezePricing({
-            exactCostUsd: row.exactCostUsd,
+            exactCostUsd: ignoreExactCost ? null : row.exactCostUsd,
             pricingMatch,
             inputTokens: row.inputTokens,
             outputTokens: row.outputTokens,

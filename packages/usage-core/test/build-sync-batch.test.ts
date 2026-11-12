@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { buildSyncBatch } from "../src/build-sync-batch"
+import { buildSyncBatch, fixedPricing } from "../src/build-sync-batch"
 
 describe("buildSyncBatch", () => {
   it("deduplicates rows and freezes pricing snapshots", async () => {
@@ -32,7 +32,7 @@ describe("buildSyncBatch", () => {
           sourceSessionHash: "abc123",
         },
       ],
-      new Map([
+      fixedPricing(new Map([
         [
           "anthropic:claude-sonnet-4-6",
           {
@@ -42,7 +42,7 @@ describe("buildSyncBatch", () => {
             cacheWriteCost: 5,
           },
         ],
-      ])
+      ]))
     )
 
     expect(batch.rows).toHaveLength(1)
@@ -80,7 +80,7 @@ describe("buildSyncBatch", () => {
           sourceSessionHash: "claude-1h",
         },
       ],
-      new Map([
+      fixedPricing(new Map([
         [
           "anthropic:claude-opus-4-8",
           {
@@ -90,7 +90,7 @@ describe("buildSyncBatch", () => {
             cacheWriteCost: 6.25,
           },
         ],
-      ])
+      ]))
     )
 
     expect(batch.rows[0]).toMatchObject({
@@ -120,7 +120,7 @@ describe("buildSyncBatch", () => {
           sourceSessionHash: "goal-123",
         },
       ],
-      new Map([
+      fixedPricing(new Map([
         [
           "openai:codex-goal",
           {
@@ -130,7 +130,7 @@ describe("buildSyncBatch", () => {
             cacheWriteCost: 5,
           },
         ],
-      ])
+      ]))
     )
 
     expect(batch.rows[0]).toMatchObject({
@@ -160,7 +160,7 @@ describe("buildSyncBatch", () => {
           sourceSessionHash: "agy-event-1",
         },
       ],
-      new Map([
+      fixedPricing(new Map([
         [
           "google:gemini-3.6-flash",
           {
@@ -170,7 +170,7 @@ describe("buildSyncBatch", () => {
             cacheWriteCost: null,
           },
         ],
-      ])
+      ]))
     )
 
     expect(batch.rows[0]).toMatchObject({
@@ -199,7 +199,7 @@ describe("buildSyncBatch group mode", () => {
     })
     const batch = await buildSyncBatch(
       [slice(1, false), slice(null, true)],
-      new Map()
+      fixedPricing(new Map())
     )
 
     expect(batch.rows).toHaveLength(1)

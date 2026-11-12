@@ -167,12 +167,12 @@ export function parseModelsDevCatalog(input: unknown): ModelsDevCatalogRow[] {
   return []
 }
 
-export async function fetchModelsDevCatalog(): Promise<ModelsDevCatalogRow[]> {
+export async function fetchModelsDevJson(): Promise<unknown> {
   const response = await fetch("https://models.dev/api.json", {
     headers: { accept: "application/json" },
   })
-  const json = (await response.json()) as unknown
-  return parseModelsDevCatalog(json)
+  if (!response.ok) throw new Error(`models.dev responded ${response.status} ${response.statusText}`)
+  return (await response.json()) as unknown
 }
 
 export function toPricingSnapshot(row: ModelsDevCatalogRow): PricingSnapshot {

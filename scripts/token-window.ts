@@ -1,6 +1,6 @@
 import { mkdir, rename, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { formatTokenCount, runTokenWindow } from "../packages/usage-core/src/index.ts"
+import { defaultCatalogDir, formatTokenCount, runTokenWindow } from "../packages/usage-core/src/index.ts"
 
 // Snapshot of local agent token usage over a trailing window, for the caelestia
 // bar widget (`ClaudeTokens.qml`). Reads every local store the sync pipeline
@@ -17,7 +17,7 @@ const cacheHome = process.env.XDG_CACHE_HOME ?? join(home, ".cache")
 const days = Number(argValue("days") ?? 7)
 const root = argValue("root") ?? process.env.CLAUDE_CODE_PATH ?? join(home, ".claude/projects")
 const out = argValue("out") ?? process.env.CLAUDE_TOKENS_OUT ?? join(cacheHome, "claude-usage/tokens.json")
-const pricingPath = argValue("pricing") ?? process.env.KHARCHA_PRICING_PATH ?? join(cacheHome, "kharcha/pricing.json")
+const archiveDir = argValue("catalog") ?? defaultCatalogDir()
 const cachePath = process.argv.includes("--no-cache")
   ? null
   : (argValue("cache") ?? process.env.CLAUDE_TOKENS_CACHE_PATH ?? join(cacheHome, "kharcha/claude-tokens-cache.json"))
@@ -38,7 +38,7 @@ const sources = claudeOnly
 
 if (!Number.isInteger(days) || days < 1) throw new Error(`--days must be a positive integer, got ${days}`)
 
-const window = await runTokenWindow({ root, windowDays: days, cachePath, pricingPath, sources })
+const window = await runTokenWindow({ root, windowDays: days, cachePath, archiveDir, sources })
 
 await mkdir(dirname(out), { recursive: true })
 await writeFile(`${out}.tmp`, JSON.stringify(window, null, 2))

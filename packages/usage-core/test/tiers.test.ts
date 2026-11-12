@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runTokenWindow } from "../src/token-window"
+import { writeCatalogArchive } from "../src/pricing/catalog-archive"
 import { freezePricing } from "../src/pricing/freeze-pricing"
 import { parseModelsDevCatalog } from "../src/pricing/models-dev"
 
@@ -92,17 +93,30 @@ describe("long-context tiers", () => {
         },
       })
     await writeFile(join(dir, "s.jsonl"), [1, 2, 3].map(line).join("\n") + "\n")
-    const tiered = { ...tieredMatch, tiers: [{ ...tieredMatch.tiers[0]!, promptTokensAbove: 100_000 }] }
-    await writeFile(
-      join(dir, "pricing.json"),
-      JSON.stringify({ catalog: { "anthropic:claude-sonnet-4-6": tiered } })
-    )
+    const archiveDir = join(dir, "catalog")
+    writeCatalogArchive(archiveDir, {
+      anthropic: {
+        models: {
+          "claude-sonnet-4-6": {
+            cost: {
+              input: 1,
+              output: 10,
+              cache_read: 0.1,
+              cache_write: 1.25,
+              tiers: [
+                { tier: { type: "context", size: 100_000 }, input: 2, output: 15, cache_read: 0.2, cache_write: 2.5 },
+              ],
+            },
+          },
+        },
+      },
+    }, new Date(), 1)
 
     const window = await runTokenWindow({
       root: dir,
       windowDays: 3,
       cachePath: null,
-      pricingPath: join(dir, "pricing.json"),
+      archiveDir,
     })
 
     // Each response has a 61K prompt (base rates) although the cache reads sum to 180K.

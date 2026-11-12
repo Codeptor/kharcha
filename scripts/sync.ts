@@ -1,10 +1,14 @@
-import { access, mkdir, readdir, rename, writeFile } from "node:fs/promises"
+import { access, readdir } from "node:fs/promises"
 import { constants as fsConstants } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import {
   buildSyncBatch,
-  CUSTOM_PRICING,
-  fetchModelsDevCatalog,
+  localDate,
+  openCatalogArchive,
+  acceptCatalog,
+  createDatedPricing,
+  defaultCatalogDir,
+  fetchModelsDevJson,
   readClaudeCodeUsage,
   readAgyUsage,
   readCodexRollouts,
@@ -12,8 +16,7 @@ import {
   readOpenCodeUsage,
   readOmpUsage,
   readDshUsage,
-  toPricingSnapshot,
-  type SyncPricingLookup,
+  writeCatalogArchive,
   type UsageSlice,
 } from "../packages/usage-core/src/index.ts"
 
@@ -47,162 +50,6 @@ async function resolveWindowsClaudeDirs(): Promise<string[]> {
     if (await pathExists(join(claudeDir, "projects"))) dirs.push(claudeDir)
   }
   return dirs
-}
-
-type PricingEntry = ReturnType<typeof toPricingSnapshot>
-
-// First-party vendors price their own models; hosts resell them. A borrowed
-// retail rate comes from the best tier, then the cheapest non-zero entry in it.
-const PROVIDER_TIERS = [
-  new Set([
-    "anthropic",
-    "openai",
-    "google",
-    "deepseek",
-    "moonshotai",
-    "minimax",
-    "mistral",
-    "cohere",
-    "zai",
-    "alibaba",
-    "xiaomi",
-    "xai",
-    "meta",
-  ]),
-  new Set([
-    "groq",
-    "amazon-bedrock",
-    "azure",
-    "azure-cognitive-services",
-    "vertex",
-    "deepinfra",
-    "fireworks",
-    "together",
-  ]),
-]
-
-function providerTier(id: string) {
-  const tier = PROVIDER_TIERS.findIndex((set) => set.has(id))
-  return tier === -1 ? PROVIDER_TIERS.length : tier
-}
-
-const splitKey = (key: string) => {
-  const colon = key.indexOf(":")
-  return { providerId: key.slice(0, colon), modelId: key.slice(colon + 1) }
-}
-const lastSegment = (id: string) => (id.split("/").pop() ?? id).toLowerCase()
-const hasRate = (snap: PricingEntry) =>
-  (snap.inputCost ?? 0) > 0 || (snap.outputCost ?? 0) > 0
-
-// Retail rate of the same model (matched by trailing segment, any case) under
-// the best provider that publishes one. The snapshot is returned as is.
-function borrowRetail(
-  lookup: Map<string, PricingEntry>,
-  key: string
-): PricingEntry | null {
-  const tail = lastSegment(splitKey(key).modelId)
-  let best: PricingEntry | null = null
-  let bestTier = Number.POSITIVE_INFINITY
-  let bestRate = Number.POSITIVE_INFINITY
-  for (const [otherKey, snap] of lookup) {
-    if (otherKey === key || !hasRate(snap)) continue
-    const other = splitKey(otherKey)
-    if (lastSegment(other.modelId) !== tail) continue
-    const rate = (snap.inputCost ?? 0) + (snap.outputCost ?? 0)
-    const tier = providerTier(other.providerId)
-    if (tier < bestTier || (tier === bestTier && rate < bestRate)) {
-      bestTier = tier
-      bestRate = rate
-      best = snap
-    }
-  }
-  return best
-}
-
-async function loadPricingLookup(neededKeys: Set<string>) {
-  console.log("  fetching pricing catalog from models.dev...")
-  const catalog = await fetchModelsDevCatalog()
-  const lookup = new Map<string, PricingEntry>()
-
-  for (const row of catalog) {
-    lookup.set(`${row.providerId}:${row.modelId}`, toPricingSnapshot(row))
-  }
-
-  // NVIDIA NIM is free-tier hosted; models.dev lists most NIM models at $0/$0.
-  // Swap those entries for the retail equivalent so the tokens carry a shadow cost.
-  let nimBorrowed = 0
-  for (const [key, snap] of [...lookup]) {
-    if (!key.startsWith("nvidia:") || hasRate(snap)) continue
-    const retail = borrowRetail(lookup, key)
-    if (!retail) continue
-    lookup.set(key, retail)
-    nimBorrowed += 1
-  }
-  if (nimBorrowed > 0) console.log(`  NIM: ${nimBorrowed} models borrow retail rates`)
-
-  // Override with pricing for models models.dev does not list.
-  for (const [key, snapshot] of Object.entries(CUSTOM_PRICING)) {
-    lookup.set(key, snapshot)
-  }
-
-  // QwenCloud (Alibaba Model Studio) sells at Alibaba's own pay-as-you-go
-  // prices, so it mirrors the `alibaba` catalog; models.dev lists the Token
-  // Plan itself at $0. Gaps fall through to the gateway rule below.
-  for (const [key, snapshot] of [...lookup]) {
-    if (!key.startsWith("alibaba:")) continue
-    lookup.set(`qwencloud:${key.slice("alibaba:".length)}`, snapshot)
-  }
-
-  // A needed key with no exact entry takes the entry of the same provider whose
-  // model id differs only in case.
-  const byFoldedKey = new Map<string, PricingEntry>()
-  for (const [key, snap] of lookup) byFoldedKey.set(key.toLowerCase(), snap)
-  for (const key of neededKeys) {
-    if (lookup.has(key)) continue
-    const folded = byFoldedKey.get(key.toLowerCase())
-    if (folded) lookup.set(key, folded)
-  }
-
-  // Gateways resell other vendors' models without publishing rates of their
-  // own. Borrow the retail rate of the same model; a model whose id says free
-  // with no catalog entry is genuinely $0.
-  const GATEWAYS = new Set(["nvidia", "tokenrouter", "opencode", "openrouter", "qwencloud"])
-  const isFree = (modelId: string) => /(^|[-_/])free($|[-_/])|free$/i.test(modelId)
-  let gatewayBorrowed = 0
-  let freeModels = 0
-  for (const key of neededKeys) {
-    const { providerId, modelId } = splitKey(key)
-    if (!GATEWAYS.has(providerId)) continue
-    const existing = lookup.get(key)
-    if (existing && hasRate(existing)) continue
-    if (isFree(modelId)) {
-      if (existing) continue
-      lookup.set(key, { inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0 })
-      freeModels += 1
-      continue
-    }
-    const retail = borrowRetail(lookup, key)
-    if (!retail) continue
-    lookup.set(key, retail)
-    gatewayBorrowed += 1
-  }
-  if (gatewayBorrowed > 0) console.log(`  gateways: ${gatewayBorrowed} models borrow retail rates`)
-  if (freeModels > 0) console.log(`  gateways: ${freeModels} free models at $0`)
-
-  console.log(`  ${catalog.length} models loaded`)
-  return lookup
-}
-
-// Offline consumers (the caelestia token widget) price against the same
-// catalog this batch uses, so a rate never has two sources of truth.
-async function writePricingSnapshot(lookup: SyncPricingLookup): Promise<void> {
-  const path =
-    process.env.KHARCHA_PRICING_PATH ??
-    join(process.env.XDG_CACHE_HOME ?? join(process.env.HOME ?? "", ".cache"), "kharcha/pricing.json")
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(`${path}.tmp`, JSON.stringify({ fetchedAt: new Date().toISOString(), catalog: Object.fromEntries(lookup) }))
-  await rename(`${path}.tmp`, path)
-  console.log(`  pricing snapshot written to ${path}`)
 }
 
 // A reader returns its rows, or rows plus a detail suffix for the log line.
@@ -311,12 +158,30 @@ async function main() {
   const rows = await loadUsageRows()
 
   console.log("\n▸ Fetching pricing...")
-  const neededKeys = new Set(rows.map(row => `${row.provider}:${row.model}`))
-  const pricingLookup = await loadPricingLookup(neededKeys)
-  await writePricingSnapshot(pricingLookup)
+  const catalogDir = defaultCatalogDir()
+  // A failed or truncated models.dev fetch prices from the existing archive.
+  // A dry run keeps today's fetch in memory and writes nothing.
+  let memory: Parameters<typeof openCatalogArchive>[1]
+  try {
+    const payload = await fetchModelsDevJson()
+    if (dryRun) {
+      memory = { date: localDate(new Date()), catalog: acceptCatalog(catalogDir, payload) }
+      console.log("  catalog archive: dry run, fetched catalog used in memory, nothing written")
+    } else {
+      const archived = writeCatalogArchive(catalogDir, payload)
+      console.log(`  catalog archive: ${archived.written ? "written" : "unchanged"} ${archived.file} (${catalogDir})`)
+    }
+  } catch (error) {
+    console.warn(`  warning: ${error instanceof Error ? error.message : String(error)}; pricing from the existing archive`)
+  }
+  const archive = openCatalogArchive(catalogDir, memory)
+  if (archive.dateFor(localDate(new Date())) === null) throw new Error(`no usable catalog archive in ${catalogDir}`)
+  const pricingStart = performance.now()
+  const dated = createDatedPricing({ archive })
 
   console.log("\n▸ Building sync batch...")
-  const batch = await buildSyncBatch(rows, pricingLookup)
+  const batch = await buildSyncBatch(rows, dated.resolve)
+  console.log(`  ${dated.lookupCount()} dated lookups built, pricing took ${Math.round(performance.now() - pricingStart)} ms`)
 
   const totalCost = batch.rows.reduce((s, r) => s + r.costUsd, 0)
   const sources = [...new Set(batch.rows.map((r) => r.source))]
