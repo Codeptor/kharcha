@@ -18,8 +18,9 @@ bun run agy:install
 
 - `packages/usage-core` reads local provider history, normalizes model IDs, and
   creates idempotent sync batches.
-- `scripts/sync.ts` reads every configured source, fetches the live models.dev
-  catalog, applies explicit official-price overrides, and posts to the web app.
+- `scripts/sync.ts` reads every configured source, archives the models.dev
+  catalog, prices each request at the rate in force when it was made, and
+  posts to the web app.
 - The Codex reader caches each rollout's outcome (keys, anchors, emitted turns)
   in `$XDG_CACHE_HOME/kharcha/codex-rollouts.json` (override with
   `CODEX_CACHE_PATH`) so an hourly sync only re-reads files that grew. Delete
@@ -61,16 +62,18 @@ bun run agy:install
   some fixed weekday. Claude Code responses are deduped by `message.id` +
   `requestId`, exactly as `readClaudeCodeUsage` does, so the counts match the
   dashboard rather than the ~2x-inflated raw-line totals.
-- Cost comes from `$XDG_CACHE_HOME/kharcha/pricing.json`, the models.dev lookup
-  `bun run sync` priced its own batch with (overridable with
-  `KHARCHA_PRICING_PATH`). omp and dsh report their own per-row cost, which is
-  used as exact; models missing a rate are reported as `unpriced` and excluded
-  from the total, never priced at zero.
+- Cost comes from the catalog archive the sync writes, through the same dated
+  resolver the sync prices with (`createDatedPricing`), so a rate never has two
+  sources of truth. Logged per-row costs (omp, OpenCode) are used as exact,
+  except where a peak rule overrides them; models missing a rate are reported
+  as `unpriced` and excluded from the total, never priced at zero. With no
+  archive yet (before the first sync) every estimated model is unpriced.
 - Each request is priced at its context tier with the same functions the sync
-  uses (`resolveRates`, `priceCounters`). The Claude Code cache (schema 4)
+  uses (`resolveRates`, `priceCounters`). The Claude Code cache (schema 5)
   keeps counters split by the tier band each response fell into and records
-  every model's thresholds, so a pricing change that moves them forces a cold
-  read.
+  each day's thresholds per model, so a pricing change that moves them forces
+  a cold read. Claude Code counters are day-grained, so they take the rate in
+  force at local noon of their day, as any slice without a timestamp does.
 - Both Claude accounts write into the same `~/.claude/projects` transcripts and
   the JSONL carries no account marker, so the Claude Code part of the window is
   always combined across `claude` and `claude2`. The percentage meter is per
@@ -102,9 +105,32 @@ bun run agy:install
 - `CUSTOM_PRICING` holds only models the catalog lacks, each citing its source.
   An entry replaces the catalog's rate and its tiers, so delete it once
   models.dev lists the model.
-- Rates are today's catalog prices applied to every row still on disk.
-  Time-of-day pricing (DeepSeek's peak hours, Alibaba's busy hours for its
-  DeepSeek models) and price changes over time are not modeled.
+- Price each request at the rate in force when it was made. Every sync
+  archives the models.dev catalog as `YYYY-MM-DD.json.gz` under
+  `$XDG_DATA_HOME/kharcha/catalog` (`KHARCHA_CATALOG_DIR`) when it changed, and
+  a request uses the newest archive at or before its local day. A model the
+  catalog listed only later takes its first listed price. The archive is
+  persistent data: deleting it re-prices history at the oldest surviving day.
+  Unreadable files are skipped, a payload with under 1,000 models or under 70%
+  of the newest archive is refused, a failed fetch prices from the archive,
+  and `--dry-run` never writes it.
+- models.dev trails vendors by days to weeks, and the archive starts on
+  2026-11-12, so verified past rates live in `PRICE_HISTORY`
+  (`packages/usage-core/src/pricing/price-history.ts`), each with an `until`
+  and a source quote. They apply to raw catalog rows before derivation, so
+  gateways that borrow a vendor's rate inherit them. Never add an entry without
+  `until`: it would pin that rate over every later catalog change.
+- `PEAK_RULES` holds time-of-day surcharges: DeepSeek bills 2x Monday to Friday
+  01:00-04:00 and 06:00-10:00 UTC since 2026-08-16 16:00 UTC, except on China's
+  public holidays (by China-local date). Harnesses log DeepSeek costs from the
+  off-peak catalog, so those logged costs are ignored and kharcha prices the
+  requests itself. Add each year's holidays when the State Council publishes
+  them (usually November). Alibaba's busy-hour pricing for its DeepSeek models
+  is not modeled; QwenCloud usage is a subscription priced at Alibaba's list.
+- The sync never re-prices DB rows whose local source is gone. A new
+  `PRICE_HISTORY` entry that covers their days needs a one-off correction of
+  those rows (scale each token class by the rate change; keep the stored
+  cache-write mix).
 - The production DB keeps rows whose local source is gone: Claude Code prunes
   transcripts after 30 days and older Codex rollouts are deleted. Never
   reconcile the DB against a batch wholesale; delete only keys proven stale
